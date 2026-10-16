@@ -163,6 +163,8 @@ pub enum SlotSource {
     Base,
     /// Take the component from another installed skin by ID.
     Donor(String),
+    /// Directly imported custom file from disk.
+    CustomFile(PathBuf),
     /// Completely remove the component (for optional components like cursormiddle, combobreak).
     None,
 }
@@ -184,12 +186,41 @@ pub struct ManifestMixPlan {
     pub custom_skin_ini_hash: Option<String>,
 }
 
+fn target_filename_for_custom_file(slot: ComponentSlot, source_path: &Path) -> String {
+    let primary = slot.primary_filename();
+    let lower_primary = primary.to_ascii_lowercase();
+    let is_audio = lower_primary.ends_with(".wav")
+        || lower_primary.ends_with(".ogg")
+        || lower_primary.ends_with(".mp3");
+    if is_audio {
+        if let Some(ext) = source_path.extension().and_then(|e| e.to_str()) {
+            let lower_ext = ext.to_ascii_lowercase();
+            if lower_ext == "wav" || lower_ext == "ogg" || lower_ext == "mp3" {
+                if let Some((stem, _)) = primary.rsplit_once('.') {
+                    return format!("{stem}.{lower_ext}");
+                }
+            }
+        }
+    }
+    primary.to_string()
+}
+
 /// Resolves a zero-copy manifest mix plan into Realm patch operations:
 /// - `duplicate_skin`: clones base skin under a new ID
 /// - `add_file`: references existing hashes from donor skins (zero duplicate disk bytes)
 /// - `remove_file`: prunes orphaned @2x files or disabled components (None)
 /// - fallback: if donor lacks a component, preserves the base component
 pub fn resolve_manifest_mix(
+    installed_skins: &[Skin],
+    plan: &ManifestMixPlan,
+) -> CoreResult<GeneratedPatch> {
+    resolve_manifest_mix_with_storage(Path::new(""), installed_skins, plan)
+}
+
+/// Resolves a manifest mix plan into Realm patch operations, with access to `files_dir`
+/// for staging newly imported custom files.
+pub fn resolve_manifest_mix_with_storage(
+    files_dir: &Path,
     installed_skins: &[Skin],
     plan: &ManifestMixPlan,
 ) -> CoreResult<GeneratedPatch> {
@@ -214,6 +245,58 @@ pub fn resolve_manifest_mix(
 
     for assignment in &plan.slots {
         let slot = assignment.slot;
+
+        if slot == ComponentSlot::HudLayout {
+            match &assignment.source {
+                SlotSource::Base => {}
+                SlotSource::None => {
+                    if let Some(base_hud) = base_skin
+                        .files
+                        .iter()
+                        .find(|f| f.filename.eq_ignore_ascii_case("skin.json"))
+                    {
+                        operations.push(PatchOperation::remove_file(
+                            new_skin_id.clone(),
+                            base_hud.filename.clone(),
+                        ));
+                    }
+                }
+                SlotSource::Donor(donor_id) => {
+                    if let Some(donor_skin) = installed_skins.iter().find(|s| &s.id == donor_id) {
+                        if let Some(donor_hud) = donor_skin
+                            .files
+                            .iter()
+                            .find(|f| f.filename.eq_ignore_ascii_case("skin.json"))
+                        {
+                            operations.push(PatchOperation::add_file(
+                                new_skin_id.clone(),
+                                "skin.json".to_string(),
+                                donor_hud.file_hash.clone(),
+                            ));
+                        } else if let Some(base_hud) = base_skin
+                            .files
+                            .iter()
+                            .find(|f| f.filename.eq_ignore_ascii_case("skin.json"))
+                        {
+                            operations.push(PatchOperation::remove_file(
+                                new_skin_id.clone(),
+                                base_hud.filename.clone(),
+                            ));
+                        }
+                    }
+                }
+                SlotSource::CustomFile(path) => {
+                    let stored = storage::store_resource(files_dir, path)?;
+                    operations.push(PatchOperation::add_file(
+                        new_skin_id.clone(),
+                        "skin.json".to_string(),
+                        stored.hash,
+                    ));
+                }
+            }
+            continue;
+        }
+
         let base_files: Vec<_> = base_skin
             .files
             .iter()
@@ -268,6 +351,27 @@ pub fn resolve_manifest_mix(
                                 base_file.filename.clone(),
                             ));
                         }
+                    }
+                }
+            }
+            SlotSource::CustomFile(path) => {
+                let stored = storage::store_resource(files_dir, path)?;
+                let target_filename = target_filename_for_custom_file(slot, path);
+
+                operations.push(PatchOperation::add_file(
+                    new_skin_id.clone(),
+                    target_filename.clone(),
+                    stored.hash,
+                ));
+
+                // Prune any base files that belong to this slot but differ from target_filename
+                // (e.g. cursor@2x.png when importing cursor.png, or normal-hitnormal.wav when importing .ogg)
+                for base_file in base_files {
+                    if !base_file.filename.eq_ignore_ascii_case(&target_filename) {
+                        operations.push(PatchOperation::remove_file(
+                            new_skin_id.clone(),
+                            base_file.filename.clone(),
+                        ));
                     }
                 }
             }
@@ -516,4 +620,55 @@ mod tests {
         assert_eq!(patch.operations.len(), 1);
         assert_eq!(patch.operations[0].op, "duplicate_skin");
     }
+
+    #[test]
+    fn custom_file_import_stages_bytes_and_prunes_base_retina() {
+        let files_dir = temp_dir("custom-files");
+        let base_skin = Skin {
+            id: "base-id".to_string(),
+            name: "Base".to_string(),
+            creator: "ck".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![
+                crate::bridge::SkinFile {
+                    filename: "cursor.png".to_string(),
+                    file_hash: "base1x".to_string(),
+                },
+                crate::bridge::SkinFile {
+                    filename: "cursor@2x.png".to_string(),
+                    file_hash: "base2x".to_string(),
+                },
+            ],
+        };
+
+        let custom_file = files_dir.join("my_cursor.png");
+        std::fs::create_dir_all(&files_dir).unwrap();
+        std::fs::write(&custom_file, b"brand-new-custom-cursor-content").unwrap();
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::Cursor,
+                source: SlotSource::CustomFile(custom_file),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix_with_storage(&files_dir, &[base_skin], &plan).unwrap();
+
+        // Must add the custom file as cursor.png
+        assert!(patch.operations.iter().any(|op| {
+            op.op == "add_file" && op.filename.as_deref() == Some("cursor.png")
+        }));
+        // Must remove the base cursor@2x.png so it doesn't shadow custom 1x
+        assert!(patch.operations.iter().any(|op| {
+            op.op == "remove_file" && op.filename.as_deref() == Some("cursor@2x.png")
+        }));
+    }
 }
+
