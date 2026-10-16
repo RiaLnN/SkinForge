@@ -80,7 +80,8 @@ mod tests {
     fn updates_existing_skin_entry_preserving_others() {
         let temp = std::env::temp_dir().join(format!("skinforge-ini-upd-{}", std::process::id()));
         fs::create_dir_all(&temp).unwrap();
-        let original = "[General]\nRuleset = osu\nSkin = 00000000-0000-0000-0000-000000000000\nVolume = 0.8\n";
+        let original =
+            "[General]\nRuleset = osu\nSkin = 00000000-0000-0000-0000-000000000000\nVolume = 0.8\n";
         fs::write(temp.join("game.ini"), original).unwrap();
 
         set_active_skin(&temp, "abcdef01-2345-6789-abcd-ef0123456789").unwrap();

@@ -662,13 +662,13 @@ mod tests {
         let patch = resolve_manifest_mix_with_storage(&files_dir, &[base_skin], &plan).unwrap();
 
         // Must add the custom file as cursor.png
-        assert!(patch.operations.iter().any(|op| {
-            op.op == "add_file" && op.filename.as_deref() == Some("cursor.png")
-        }));
+        assert!(patch
+            .operations
+            .iter()
+            .any(|op| { op.op == "add_file" && op.filename.as_deref() == Some("cursor.png") }));
         // Must remove the base cursor@2x.png so it doesn't shadow custom 1x
         assert!(patch.operations.iter().any(|op| {
             op.op == "remove_file" && op.filename.as_deref() == Some("cursor@2x.png")
         }));
     }
 }
-

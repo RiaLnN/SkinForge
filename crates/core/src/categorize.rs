@@ -572,4 +572,3 @@ mod tests {
         assert!(!ComponentSlot::PauseMenu.supports_single_file_import());
     }
 }
-

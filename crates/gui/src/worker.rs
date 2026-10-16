@@ -154,7 +154,8 @@ fn execute_apply_mix(
     // 6. If requested, set as active skin in game.ini
     if set_active_on_build {
         if let Some(data_dir) = client_realm_path.parent() {
-            if let Err(e) = skinforge_core::game_ini::set_active_skin(data_dir, &patch.new_skin_id) {
+            if let Err(e) = skinforge_core::game_ini::set_active_skin(data_dir, &patch.new_skin_id)
+            {
                 eprintln!("Warning: failed to set active skin in game.ini: {e}");
             }
         }
