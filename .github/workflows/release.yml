@@ -47,7 +47,7 @@ jobs:
     needs: version
     runs-on: windows-latest
     env:
-      VERSION: ${{ needs.version.outputs.tag }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
       PKG: skinforge-${{ needs.version.outputs.tag }}-windows-x64
     steps:
       - name: Checkout repository
@@ -89,7 +89,7 @@ jobs:
           Copy-Item target/release/skinforge-cli.exe $env:PKG/
           Copy-Item README.md $env:PKG/
           if (Test-Path LICENSE) { Copy-Item LICENSE $env:PKG/ }
-          (Get-Content packaging/QUICKSTART.txt -Raw).Replace('__VERSION__', $env:VERSION).Replace('__PLATFORM__', 'Windows x64') |
+          (Get-Content packaging/QUICKSTART.txt -Raw).Replace('__VERSION__', $env:RELEASE_TAG).Replace('__PLATFORM__', 'Windows x64') |
             Set-Content -Path "$env:PKG/QUICKSTART.txt" -Encoding utf8
           Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
 
@@ -105,7 +105,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.version.outputs.tag }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
       PKG: skinforge-${{ needs.version.outputs.tag }}-linux-x64
     steps:
       - name: Checkout repository
@@ -148,7 +148,7 @@ jobs:
           cp target/release/skinforge target/release/skinforge-cli "$PKG/"
           cp README.md "$PKG/"
           [ -f LICENSE ] && cp LICENSE "$PKG/" || true
-          sed -e "s/__VERSION__/$VERSION/g" -e "s/__PLATFORM__/Linux x64/g" packaging/QUICKSTART.txt > "$PKG/QUICKSTART.txt"
+          sed -e "s/__VERSION__/$RELEASE_TAG/g" -e "s/__PLATFORM__/Linux x64/g" packaging/QUICKSTART.txt > "$PKG/QUICKSTART.txt"
           chmod +x "$PKG/skinforge" "$PKG/skinforge-cli" "$PKG/bridge/realm-bridge"
           tar -czf "$PKG.tar.gz" "$PKG"
 
