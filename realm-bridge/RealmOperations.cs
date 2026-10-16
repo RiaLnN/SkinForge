@@ -160,13 +160,7 @@ internal static class RealmOperations
         dynamic? existingFile = realm.DynamicApi.Find(FileClass, fileHash);
         dynamic file = existingFile ?? realm.DynamicApi.CreateObject(FileClass, fileHash);
 
-        // NOTE: точный вызов для добавления embedded-объекта в IList<T> через Dynamic API
-        // может отличаться между версиями пакета Realm. Ниже — обращение к списку как к
-        // обычной dynamic-коллекции; если сборка укажет на несовпадение сигнатуры,
-        // замените на актуальный метод из Realms.Dynamic для вашей версии SDK
-        // (в некоторых версиях это realm.DynamicApi.CreateEmbeddedObjectForProperty(skin, "Files")
-        // с последующим присвоением .Filename / .File).
-        dynamic usage = realm.DynamicApi.CreateEmbeddedObjectForProperty(skin, "Files");
+        dynamic usage = realm.DynamicApi.AddEmbeddedObjectToList(skin.Files);
         usage.Filename = filename;
         usage.File = file;
     }
@@ -184,16 +178,17 @@ internal static class RealmOperations
 
     private static bool RemoveFileUsageIfPresent(dynamic skin, string filename)
     {
-        for (int i = 0; i < skin.Files.Count; i++)
+        bool removed = false;
+        for (int i = skin.Files.Count - 1; i >= 0; i--)
         {
             dynamic usage = skin.Files[i];
-            if ((string)usage.Filename == filename)
+            if (string.Equals((string)usage.Filename, filename, StringComparison.OrdinalIgnoreCase))
             {
                 skin.Files.RemoveAt(i);
-                return true;
+                removed = true;
             }
         }
-        return false;
+        return removed;
     }
 
     private static void SoftDeleteSkin(Realm realm, PatchOperation op)
