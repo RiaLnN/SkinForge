@@ -49,6 +49,13 @@ pub enum ComponentSlot {
     // Interface
     ScoreNumbers,
     PauseMenu,
+    HudLayout,
+    MenuClick,
+    MenuHit,
+    MenuBack,
+    Applause,
+    FailSound,
+    PauseLoop,
 }
 
 impl ComponentSlot {
@@ -74,6 +81,13 @@ impl ComponentSlot {
             ComponentSlot::SectionFail,
             ComponentSlot::ScoreNumbers,
             ComponentSlot::PauseMenu,
+            ComponentSlot::HudLayout,
+            ComponentSlot::MenuClick,
+            ComponentSlot::MenuHit,
+            ComponentSlot::MenuBack,
+            ComponentSlot::Applause,
+            ComponentSlot::FailSound,
+            ComponentSlot::PauseLoop,
         ]
     }
 
@@ -96,7 +110,15 @@ impl ComponentSlot {
             | Self::Combobreak
             | Self::SectionPass
             | Self::SectionFail => ComponentCategory::Audio,
-            Self::ScoreNumbers | Self::PauseMenu => ComponentCategory::Interface,
+            Self::ScoreNumbers
+            | Self::PauseMenu
+            | Self::HudLayout
+            | Self::MenuClick
+            | Self::MenuHit
+            | Self::MenuBack
+            | Self::Applause
+            | Self::FailSound
+            | Self::PauseLoop => ComponentCategory::Interface,
         }
     }
 
@@ -122,6 +144,13 @@ impl ComponentSlot {
             Self::SectionFail => "Section Fail",
             Self::ScoreNumbers => "Score Numbers",
             Self::PauseMenu => "Pause Menu",
+            Self::HudLayout => "HUD Layout",
+            Self::MenuClick => "Menu Click",
+            Self::MenuHit => "Menu Hit",
+            Self::MenuBack => "Menu Back",
+            Self::Applause => "Applause",
+            Self::FailSound => "Fail Sound",
+            Self::PauseLoop => "Pause Loop",
         }
     }
 
@@ -147,6 +176,13 @@ impl ComponentSlot {
             Self::SectionFail => "section-fail.png",
             Self::ScoreNumbers => "score-0.png",
             Self::PauseMenu => "pause-overlay.png",
+            Self::HudLayout => "skin.json",
+            Self::MenuClick => "menuclick.wav",
+            Self::MenuHit => "menuhit.wav",
+            Self::MenuBack => "menuback.wav",
+            Self::Applause => "applause.wav",
+            Self::FailSound => "failsound.wav",
+            Self::PauseLoop => "pause-loop.wav",
         }
     }
 
@@ -158,7 +194,18 @@ impl ComponentSlot {
                 | Self::Combobreak
                 | Self::CursorTrail
                 | Self::SliderFollowCircle
+                | Self::HudLayout
+                | Self::MenuClick
+                | Self::MenuHit
+                | Self::MenuBack
+                | Self::Applause
+                | Self::FailSound
+                | Self::PauseLoop
         )
+    }
+
+    pub fn supports_single_file_import(&self) -> bool {
+        !matches!(self, Self::ScoreNumbers | Self::PauseMenu)
     }
 
     /// Checks whether a classified component info matches this slot.
@@ -185,6 +232,13 @@ impl ComponentSlot {
             Self::SectionFail => k == "section-fail",
             Self::ScoreNumbers => k.starts_with("score-"),
             Self::PauseMenu => k.starts_with("pause-"),
+            Self::HudLayout => k == "skin",
+            Self::MenuClick => k == "menuclick" || k == "menu-click",
+            Self::MenuHit => k == "menuhit" || k == "menu-hit",
+            Self::MenuBack => k == "menuback" || k == "menu-back",
+            Self::Applause => k == "applause",
+            Self::FailSound => k == "failsound" || k == "fail-sound",
+            Self::PauseLoop => k == "pause-loop" || k == "pauseloop",
         }
     }
 
@@ -252,6 +306,16 @@ const INTERFACE_BASES: &[&str] = &[
     "inputoverlay-background",
     "inputoverlay-key",
     "menu-back",
+    "menuback",
+    "menuclick",
+    "menu-click",
+    "menuhit",
+    "menu-hit",
+    "applause",
+    "failsound",
+    "fail-sound",
+    "pause-loop",
+    "pauseloop",
     "pause-back",
     "pause-continue",
     "pause-retry",
@@ -266,6 +330,14 @@ const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "ogg"];
 
 pub fn classify(filename: &str) -> ComponentInfo {
     let lower = filename.to_ascii_lowercase();
+    if lower == "skin.json" {
+        return ComponentInfo {
+            filename: filename.to_string(),
+            category: ComponentCategory::Interface,
+            component_key: "skin".to_string(),
+        };
+    }
+
     let (stem, extension) = split_extension(&lower);
     let stem = strip_retina_suffix(stem);
 
@@ -469,4 +541,35 @@ mod tests {
     fn truly_unknown_file_is_other() {
         assert_eq!(key_and_category("readme.txt").0, ComponentCategory::Other);
     }
+
+    #[test]
+    fn classifies_hud_layout_and_ui_sounds() {
+        let hud = classify("skin.json");
+        assert_eq!(hud.category, ComponentCategory::Interface);
+        assert_eq!(hud.component_key, "skin");
+        assert!(ComponentSlot::HudLayout.matches(&hud));
+
+        let click = classify("menuclick.wav");
+        assert_eq!(click.category, ComponentCategory::Interface);
+        assert!(ComponentSlot::MenuClick.matches(&click));
+
+        let applause_ogg = classify("applause.ogg");
+        assert_eq!(applause_ogg.category, ComponentCategory::Interface);
+        assert!(ComponentSlot::Applause.matches(&applause_ogg));
+
+        let pause_mp3 = classify("pause-loop.mp3");
+        assert_eq!(pause_mp3.category, ComponentCategory::Interface);
+        assert!(ComponentSlot::PauseLoop.matches(&pause_mp3));
+    }
+
+    #[test]
+    fn single_file_import_support() {
+        assert!(ComponentSlot::Cursor.supports_single_file_import());
+        assert!(ComponentSlot::Hitcircle.supports_single_file_import());
+        assert!(ComponentSlot::HudLayout.supports_single_file_import());
+        assert!(ComponentSlot::Combobreak.supports_single_file_import());
+        assert!(!ComponentSlot::ScoreNumbers.supports_single_file_import());
+        assert!(!ComponentSlot::PauseMenu.supports_single_file_import());
+    }
 }
+
