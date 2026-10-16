@@ -192,6 +192,11 @@ impl ComponentSlot {
             Self::PauseMenu => k.starts_with("pause-"),
         }
     }
+
+    /// Проверяет соответствие имени файла данному слоту.
+    pub fn matches_filename(&self, filename: &str) -> bool {
+        self.matches(&classify(filename))
+    }
 }
 
 // Точные базовые имена (после снятия @2x и цифрового суффикса-вариации).

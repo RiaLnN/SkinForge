@@ -2,8 +2,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use eframe::egui;
 use osu_mixer_core::bridge::Skin;
 
+use crate::audio::AudioPlayer;
 use crate::state::AppState;
-use crate::views::{categories, sidebar};
+use crate::textures::TextureCache;
+use crate::views::{categories, preview, sidebar};
 
 pub enum AppEvent {
     SkinsLoaded(Result<Vec<Skin>, String>),
@@ -13,6 +15,8 @@ pub enum AppEvent {
 
 pub struct MixerApp {
     pub state: AppState,
+    pub textures: TextureCache,
+    pub audio: AudioPlayer,
     pub tx: Sender<AppEvent>,
     pub rx: Receiver<AppEvent>,
 }
@@ -27,6 +31,8 @@ impl MixerApp {
 
         Self {
             state: AppState::default(),
+            textures: TextureCache::new(),
+            audio: AudioPlayer::new(),
             tx,
             rx,
         }
@@ -82,6 +88,21 @@ impl eframe::App for MixerApp {
             .width_range(240.0..=360.0)
             .show(ctx, |ui| {
                 sidebar::render_sidebar(ui, &mut self.state);
+            });
+
+        egui::SidePanel::right("preview_panel")
+            .default_width(380.0)
+            .width_range(300.0..=480.0)
+            .show(ctx, |ui| {
+                let action = preview::render_preview(
+                    ui,
+                    &mut self.state,
+                    &mut self.textures,
+                    &self.audio,
+                );
+                if action == preview::PreviewAction::ApplyMix {
+                    // Будет подключено в worker в Task 6
+                }
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
