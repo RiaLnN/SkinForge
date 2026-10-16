@@ -671,4 +671,144 @@ mod tests {
             op.op == "remove_file" && op.filename.as_deref() == Some("cursor@2x.png")
         }));
     }
+
+    #[test]
+    fn custom_audio_file_retains_extension_and_prunes_base_wav() {
+        let files_dir = temp_dir("custom-audio");
+        let base_skin = Skin {
+            id: "base-id".to_string(),
+            name: "Base".to_string(),
+            creator: "ck".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![crate::bridge::SkinFile {
+                filename: "normal-hitnormal.wav".to_string(),
+                file_hash: "base_wav".to_string(),
+            }],
+        };
+
+        let custom_file = files_dir.join("hit.ogg");
+        std::fs::create_dir_all(&files_dir).unwrap();
+        std::fs::write(&custom_file, b"custom-ogg-hitsound-bytes").unwrap();
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::Hitnormal,
+                source: SlotSource::CustomFile(custom_file),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix_with_storage(&files_dir, &[base_skin], &plan).unwrap();
+
+        // Must retain the .ogg extension: normal-hitnormal.ogg
+        assert!(patch.operations.iter().any(|op| {
+            op.op == "add_file" && op.filename.as_deref() == Some("normal-hitnormal.ogg")
+        }));
+        // Must prune base normal-hitnormal.wav
+        assert!(patch.operations.iter().any(|op| {
+            op.op == "remove_file" && op.filename.as_deref() == Some("normal-hitnormal.wav")
+        }));
+    }
+
+    #[test]
+    fn hud_layout_transfer_from_donor_and_default_removal() {
+        let base_with_hud = Skin {
+            id: "base-id".to_string(),
+            name: "Base".to_string(),
+            creator: "ck".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![crate::bridge::SkinFile {
+                filename: "skin.json".to_string(),
+                file_hash: "base_hud_hash".to_string(),
+            }],
+        };
+
+        let donor_with_hud = Skin {
+            id: "donor-id".to_string(),
+            name: "Donor".to_string(),
+            creator: "ck".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![crate::bridge::SkinFile {
+                filename: "skin.json".to_string(),
+                file_hash: "donor_hud_hash".to_string(),
+            }],
+        };
+
+        let donor_no_hud = Skin {
+            id: "donor-no-hud".to_string(),
+            name: "Donor No HUD".to_string(),
+            creator: "ck".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![],
+        };
+
+        // 1. Transfer from donor with skin.json
+        let plan_donor = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::HudLayout,
+                source: SlotSource::Donor("donor-id".to_string()),
+            }],
+            custom_skin_ini_hash: None,
+        };
+        let patch =
+            resolve_manifest_mix(&[base_with_hud.clone(), donor_with_hud], &plan_donor).unwrap();
+        assert!(patch.operations.iter().any(|op| {
+            op.op == "add_file"
+                && op.filename.as_deref() == Some("skin.json")
+                && op.file_hash.as_deref() == Some("donor_hud_hash")
+        }));
+
+        // 2. Transfer from donor without skin.json should remove base skin.json
+        let plan_fallback = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::HudLayout,
+                source: SlotSource::Donor("donor-no-hud".to_string()),
+            }],
+            custom_skin_ini_hash: None,
+        };
+        let patch2 =
+            resolve_manifest_mix(&[base_with_hud.clone(), donor_no_hud], &plan_fallback).unwrap();
+        assert!(patch2
+            .operations
+            .iter()
+            .any(|op| { op.op == "remove_file" && op.filename.as_deref() == Some("skin.json") }));
+
+        // 3. SlotSource::None should remove base skin.json
+        let plan_none = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::HudLayout,
+                source: SlotSource::None,
+            }],
+            custom_skin_ini_hash: None,
+        };
+        let patch3 = resolve_manifest_mix(&[base_with_hud], &plan_none).unwrap();
+        assert!(patch3
+            .operations
+            .iter()
+            .any(|op| { op.op == "remove_file" && op.filename.as_deref() == Some("skin.json") }));
+    }
 }

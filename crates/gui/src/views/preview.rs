@@ -4,7 +4,7 @@ use skinforge_core::mixer::SlotSource;
 
 use crate::audio::AudioPlayer;
 use crate::state::AppState;
-use crate::textures::{resolve_slot_file_path, resolve_slot_texture_hash, TextureCache};
+use crate::textures::{resolve_slot_file_path, TextureCache};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewAction {
@@ -154,10 +154,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
 
     // 1. Approach Circle
-    let approach_hash = resolve_slot_texture_hash(state, ComponentSlot::ApproachCircle);
-    if let Some(tex) =
-        approach_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::ApproachCircle) {
         painter.image(
             tex.id(),
             Rect::from_center_size(center, vec2(approach_radius * 2.0, approach_radius * 2.0)),
@@ -182,10 +179,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
         .copied()
         .unwrap_or((255, 102, 171));
     let combo_tint = Color32::from_rgb(combo_color.0, combo_color.1, combo_color.2);
-    let hitcircle_hash = resolve_slot_texture_hash(state, ComponentSlot::Hitcircle);
-    if let Some(tex) =
-        hitcircle_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::Hitcircle) {
         painter.image(
             tex.id(),
             Rect::from_center_size(center, vec2(circle_radius * 2.0, circle_radius * 2.0)),
@@ -197,10 +191,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     }
 
     // 3. Hitcircle Overlay
-    let overlay_hash = resolve_slot_texture_hash(state, ComponentSlot::HitcircleOverlay);
-    if let Some(tex) =
-        overlay_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::HitcircleOverlay) {
         painter.image(
             tex.id(),
             Rect::from_center_size(center, vec2(circle_radius * 2.0, circle_radius * 2.0)),
@@ -248,10 +239,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     };
 
     // Cursor Trail
-    let trail_hash = resolve_slot_texture_hash(state, ComponentSlot::CursorTrail);
-    if let Some(tex) =
-        trail_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::CursorTrail) {
         painter.image(
             tex.id(),
             Rect::from_center_size(cursor_pos - vec2(8.0, 8.0), vec2(24.0, 24.0)),
@@ -267,10 +255,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     }
 
     // Cursor Body
-    let cursor_hash = resolve_slot_texture_hash(state, ComponentSlot::Cursor);
-    if let Some(tex) =
-        cursor_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::Cursor) {
         painter.image(
             tex.id(),
             Rect::from_center_size(cursor_pos, vec2(36.0, 36.0)),
@@ -283,10 +268,7 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     }
 
     // Cursor Middle (if not None)
-    let middle_hash = resolve_slot_texture_hash(state, ComponentSlot::CursorMiddle);
-    if let Some(tex) =
-        middle_hash.and_then(|h| textures.get_or_load(ui.ctx(), state.files_dir.as_deref(), h))
-    {
+    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::CursorMiddle) {
         painter.image(
             tex.id(),
             Rect::from_center_size(cursor_pos, vec2(10.0, 10.0)),

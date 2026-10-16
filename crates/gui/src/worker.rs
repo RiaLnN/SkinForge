@@ -1,5 +1,5 @@
 use skinforge_core::bridge::{RealmBridge, Skin};
-use skinforge_core::mixer::{self, ManifestMixPlan, SlotSource};
+use skinforge_core::mixer::{self, ManifestMixPlan};
 use skinforge_core::paths::{self, find_realm_bridge_binary};
 use skinforge_core::process_guard;
 use skinforge_core::skin_ini::SkinIni;
@@ -106,34 +106,6 @@ fn execute_apply_mix(
     skin_ini.set_general("Name", &plan.new_skin_name);
     skin_ini.set_general("Author", &plan.new_skin_creator);
     skin_ini.set_combo_colours(combo_colours);
-
-    // Merge section keys from donors
-    for assignment in &plan.slots {
-        if let SlotSource::Donor(donor_id) = &assignment.source {
-            if let Some(donor) = installed_skins.iter().find(|s| &s.id == donor_id) {
-                if let Some(donor_ini_f) = donor
-                    .files
-                    .iter()
-                    .find(|f| f.filename.eq_ignore_ascii_case("skin.ini"))
-                {
-                    let donor_ini_path =
-                        paths::hashed_storage_path(files_dir, &donor_ini_f.file_hash);
-                    if let Ok(donor_text) = std::fs::read_to_string(&donor_ini_path) {
-                        let donor_ini = SkinIni::parse(&donor_text);
-                        skin_ini.merge_section_keys(
-                            "General",
-                            &donor_ini,
-                            &[
-                                "CursorExpand",
-                                "CursorRotate",
-                                "HitCircleOverlayAboveNumber",
-                            ],
-                        );
-                    }
-                }
-            }
-        }
-    }
 
     let serialized_ini = skin_ini.to_string();
     let stored = store_resource_bytes(files_dir, serialized_ini.as_bytes())

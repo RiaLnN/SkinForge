@@ -11,7 +11,7 @@ eframe = "0.30"
 egui = "0.30"
 egui-phosphor = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }
-rodio = { version = "0.19", default-features = false, features = ["wav", "vorbis"] }
+rodio = { version = "0.19", default-features = false, features = ["wav", "vorbis", "mp3"] }
 rfd = "0.15"
 
 [[bin]]
