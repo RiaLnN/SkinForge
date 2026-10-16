@@ -3,6 +3,7 @@
 /realm-bridge/bin/
 /realm-bridge/obj/
 .superpowers/
+docs/superpowers/
 cookies.txt
 *.bak
 *.bak.*
