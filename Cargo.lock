@@ -2633,34 +2633,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "osu-mixer-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "dirs",
- "serde",
- "serde_json",
- "sha2",
- "sysinfo",
- "thiserror 1.0.69",
- "uuid",
- "walkdir",
-]
-
-[[package]]
-name = "osu-mixer-gui"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "egui-phosphor",
- "image",
- "osu-mixer-core",
- "rodio",
-]
-
-[[package]]
 name = "owned_ttf_parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3207,6 +3179,34 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "skinforge-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "dirs",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sysinfo",
+ "thiserror 1.0.69",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
+name = "skinforge-gui"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui-phosphor",
+ "image",
+ "rodio",
+ "skinforge-core",
+]
 
 [[package]]
 name = "slab"

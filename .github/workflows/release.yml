@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. v0.1.0). If empty, a dev prerelease is created."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: skinforge
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          PRERELEASE=false
+          if [[ -z "$TAG" || "$TAG" == "main" || "$TAG" == "master" ]]; then
+            TAG="dev-${GITHUB_SHA::7}"
+            PRERELEASE=true
+          elif [[ "$TAG" == *-* ]]; then
+            # v0.2.0-beta.1, v1.0.0-rc.1 ...
+            PRERELEASE=true
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    name: Build Windows x64
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.tag }}
+      PKG: skinforge-${{ needs.version.outputs.tag }}-windows-x64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish C# Realm Bridge (Self-Contained)
+        run: dotnet publish realm-bridge/realm-bridge.csproj -c Release -r win-x64 --self-contained true -o "$env:PKG/bridge"
+
+      - name: Build Rust Workspace
+        run: cargo build --release --workspace
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          Copy-Item target/release/skinforge.exe $env:PKG/
+          Copy-Item target/release/skinforge-cli.exe $env:PKG/
+          Copy-Item README.md $env:PKG/
+          if (Test-Path LICENSE) { Copy-Item LICENSE $env:PKG/ }
+          (Get-Content packaging/QUICKSTART.txt -Raw).Replace('__VERSION__', $env:VERSION).Replace('__PLATFORM__', 'Windows x64') |
+            Set-Content -Path "$env:PKG/QUICKSTART.txt" -Encoding utf8
+          Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
+
+      - name: Upload Windows Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-asset
+          path: ${{ env.PKG }}.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux x64
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.tag }}
+      PKG: skinforge-${{ needs.version.outputs.tag }}-linux-x64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Linux GUI Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libgtk-3-dev
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish C# Realm Bridge (Self-Contained)
+        run: dotnet publish realm-bridge/realm-bridge.csproj -c Release -r linux-x64 --self-contained true -o "$PKG/bridge"
+
+      - name: Build Rust Workspace
+        run: cargo build --release --workspace
+
+      - name: Assemble package
+        run: |
+          cp target/release/skinforge target/release/skinforge-cli "$PKG/"
+          cp README.md "$PKG/"
+          [ -f LICENSE ] && cp LICENSE "$PKG/" || true
+          sed -e "s/__VERSION__/$VERSION/g" -e "s/__PLATFORM__/Linux x64/g" packaging/QUICKSTART.txt > "$PKG/QUICKSTART.txt"
+          chmod +x "$PKG/skinforge" "$PKG/skinforge-cli" "$PKG/bridge/realm-bridge"
+          tar -czf "$PKG.tar.gz" "$PKG"
+
+      - name: Upload Linux Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-asset
+          path: ${{ env.PKG }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download assets
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: assets
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Compose release notes
+        run: |
+          WIN="skinforge-${TAG}-windows-x64.zip"
+          LIN="skinforge-${TAG}-linux-x64.tar.gz"
+          cat > release-notes.md <<'EOF'
+          # SkinForge __TAG__
+
+          Mix and customize **osu!lazer** skins with interactive live preview and zero-copy performance.
+
+          ## Downloads
+
+          | Platform | File | Contents |
+          | --- | --- | --- |
+          | Windows x64 | `__WIN__` | GUI, CLI, Realm bridge, docs |
+          | Linux x64 | `__LIN__` | GUI, CLI, Realm bridge, docs |
+
+          Every archive is self-contained: **no .NET or Rust installation required**.
+          Archive layout:
+
+          ```text
+          skinforge-__TAG__-<platform>/
+          ├── skinforge(.exe)           desktop application
+          ├── skinforge-cli(.exe)       command-line tool
+          ├── bridge/                   self-contained Realm bridge
+          ├── QUICKSTART.txt            short instructions
+          └── README.md                 full documentation
+          ```
+
+          ## Quick start
+
+          1. Download the archive for your platform and extract it anywhere.
+          2. Close osu!lazer (so `client.realm` is not locked).
+          3. Run `skinforge` (`skinforge.exe` on Windows).
+          4. Choose your base skin, swap cursor, gameplay, audio, or interface components, and configure combo colours.
+          5. Click **Build skin into osu!lazer**. A timestamped backup of your database is created automatically.
+          6. Launch osu!lazer — your new mixed skin is ready to play!
+
+          ## Notes
+
+          - Automatic timestamped backup (`client.realm.bak-<timestamp>`) is created before any database modifications.
+          - Linux GUI requires standard GTK 3 and X11/Wayland libraries.
+
+          ## Verify your download
+
+          SHA-256 checksums are attached as `SHA256SUMS.txt`:
+
+          ```bash
+          sha256sum -c SHA256SUMS.txt --ignore-missing
+          ```
+
+          EOF
+          sed -i -e "s/__TAG__/${TAG}/g" -e "s/__WIN__/${WIN}/g" -e "s/__LIN__/${LIN}/g" release-notes.md
+          sed -i 's/^          //' release-notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: SkinForge ${{ needs.version.outputs.tag }}
+          body_path: release-notes.md
+          generate_release_notes: true
+          files: |
+            assets/*
+          draft: false
+          prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true

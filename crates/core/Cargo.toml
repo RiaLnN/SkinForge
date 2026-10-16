@@ -1,0 +1,26 @@
+[package]
+name = "skinforge-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core library and CLI for osu!lazer SkinForge"
+license = "MIT"
+
+[lib]
+name = "skinforge_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skinforge-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+sysinfo = { version = "0.30", default-features = false }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+walkdir = "2"
+uuid = { version = "1", features = ["v4"] }

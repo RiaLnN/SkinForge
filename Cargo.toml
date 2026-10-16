@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "core",
-    "gui",
+    "crates/core",
+    "crates/gui",
 ]
 resolver = "2"

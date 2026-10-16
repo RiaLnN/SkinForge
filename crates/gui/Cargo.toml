@@ -1,0 +1,18 @@
+[package]
+name = "skinforge-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop graphical interface for osu!lazer SkinForge"
+license = "MIT"
+
+[dependencies]
+skinforge-core = { path = "../core" }
+eframe = "0.30"
+egui = "0.30"
+egui-phosphor = "0.8"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rodio = { version = "0.19", default-features = false, features = ["wav", "vorbis"] }
+
+[[bin]]
+name = "skinforge"
+path = "src/main.rs"

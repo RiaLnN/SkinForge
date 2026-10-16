@@ -1,13 +1,12 @@
 using System.Text.Json;
 using RealmBridge;
 
-// Контракт с вызывающей стороной (Rust):
-//   - Всегда ровно ОДИН JSON-объект в stdout, независимо от исхода.
-//   - Код возврата процесса: 0 = success:true, 1 = success:false (см. поле "error").
-//   - Любой не-JSON вывод (стектрейсы и т.п.) НИКОГДА не должен попасть в stdout,
-//     только в stderr — для отладки человеком, не для парсинга.
+// Contract with caller (Rust):
+//   - Always exactly ONE JSON object in stdout, regardless of outcome.
+//   - Process return code: 0 = success:true, 1 = success:false (see "error" field).
+//   - Non-JSON output (stack traces, etc.) NEVER goes to stdout, only to stderr.
 //
-// Команды:
+// Commands:
 //   realm-bridge dump-skins --db <path/to/client.realm>
 //   realm-bridge apply-patch --db <path/to/client.realm> --patch <path/to/patch.json>
 
@@ -20,7 +19,7 @@ var jsonOptions = new JsonSerializerOptions
 try
 {
     if (args.Length == 0)
-        return Fail("не указана команда. Ожидается 'dump-skins' или 'apply-patch'.");
+        return Fail("missing command. Expected 'dump-skins' or 'apply-patch'.");
 
     string command = args[0];
     var options = ParseOptions(args.AsSpan(1).ToArray());
@@ -40,26 +39,26 @@ try
             string patchPath = RequireOption(options, "patch");
 
             if (!File.Exists(patchPath))
-                return Fail($"файл патча не найден: {patchPath}");
+                return Fail($"patch file not found: {patchPath}");
 
             var patchJson = File.ReadAllText(patchPath);
             var patch = JsonSerializer.Deserialize<PatchFile>(patchJson, jsonOptions)
-                        ?? throw new InvalidOperationException("не удалось разобрать patch.json");
+                        ?? throw new InvalidOperationException("failed to parse patch.json");
 
             if (patch.Operations.Count == 0)
-                return Fail("патч не содержит ни одной операции");
+                return Fail("patch contains no operations");
 
             RealmOperations.ApplyPatch(db, patch);
             return Succeed(new { applied_operations = patch.Operations.Count });
         }
 
         default:
-            return Fail($"неизвестная команда '{command}'");
+            return Fail($"unknown command '{command}'");
     }
 }
 catch (Exception ex)
 {
-    // Полный стектрейс — только в stderr, чтобы не засорять stdout, который парсит Rust.
+    // Full stack trace only goes to stderr for human inspection
     Console.Error.WriteLine(ex);
     return Fail(ex.Message);
 }
@@ -96,6 +95,6 @@ Dictionary<string, string> ParseOptions(string[] rest)
 string RequireOption(Dictionary<string, string> options, string key)
 {
     if (!options.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
-        throw new InvalidOperationException($"отсутствует обязательный параметр --{key}");
+        throw new InvalidOperationException($"missing required option --{key}");
     return value;
 }
