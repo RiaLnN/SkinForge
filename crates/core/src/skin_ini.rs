@@ -31,6 +31,10 @@ impl IniSection {
             self.entries.push((key_str, val_str));
         }
     }
+
+    pub fn remove(&mut self, key: &str) {
+        self.entries.retain(|(k, _)| !k.eq_ignore_ascii_case(key));
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -139,6 +143,190 @@ impl SkinIni {
         self.section("Colours")
             .and_then(|s| s.get(key))
             .and_then(parse_rgb)
+    }
+
+    pub fn set_colour_key(&mut self, key: &str, val: Option<(u8, u8, u8)>) {
+        if let Some((r, g, b)) = val {
+            self.get_or_create_section_mut("Colours").set(key, &format!("{r},{g},{b}"));
+        } else if let Some(sec) = self.section_mut("Colours") {
+            sec.remove(key);
+        }
+    }
+
+    fn bool_key(&self, section: &str, key: &str) -> Option<bool> {
+        let val = self.section(section)?.get(key)?;
+        match val.trim() {
+            "1" | "true" | "True" => Some(true),
+            "0" | "false" | "False" => Some(false),
+            _ => None,
+        }
+    }
+
+    fn set_bool_key(&mut self, section: &str, key: &str, val: Option<bool>) {
+        if let Some(b) = val {
+            self.get_or_create_section_mut(section).set(key, if b { "1" } else { "0" });
+        } else if let Some(sec) = self.section_mut(section) {
+            sec.remove(key);
+        }
+    }
+
+    fn i32_key(&self, section: &str, key: &str) -> Option<i32> {
+        self.section(section)?.get(key)?.trim().parse().ok()
+    }
+
+    fn set_i32_key(&mut self, section: &str, key: &str, val: Option<i32>) {
+        if let Some(v) = val {
+            self.get_or_create_section_mut(section).set(key, &v.to_string());
+        } else if let Some(sec) = self.section_mut(section) {
+            sec.remove(key);
+        }
+    }
+
+    // Extended [Colours]
+    pub fn slider_track_override(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SliderTrackOverride")
+    }
+
+    pub fn set_slider_track_override(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SliderTrackOverride", val);
+    }
+
+    pub fn slider_border(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SliderBorder")
+    }
+
+    pub fn set_slider_border(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SliderBorder", val);
+    }
+
+    pub fn slider_ball(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SliderBall")
+    }
+
+    pub fn set_slider_ball(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SliderBall", val);
+    }
+
+    pub fn menu_glow(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("MenuGlow")
+    }
+
+    pub fn set_menu_glow(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("MenuGlow", val);
+    }
+
+    pub fn spinner_approach_circle(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SpinnerApproachCircle")
+    }
+
+    pub fn set_spinner_approach_circle(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SpinnerApproachCircle", val);
+    }
+
+    pub fn song_select_active_text(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SongSelectActiveText")
+    }
+
+    pub fn set_song_select_active_text(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SongSelectActiveText", val);
+    }
+
+    pub fn song_select_inactive_text(&self) -> Option<(u8, u8, u8)> {
+        self.colour_key("SongSelectInactiveText")
+    }
+
+    pub fn set_song_select_inactive_text(&mut self, val: Option<(u8, u8, u8)>) {
+        self.set_colour_key("SongSelectInactiveText", val);
+    }
+
+    // Extended [General]
+    pub fn cursor_rotate(&self) -> Option<bool> {
+        self.bool_key("General", "CursorRotate")
+    }
+
+    pub fn set_cursor_rotate(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "CursorRotate", val);
+    }
+
+    pub fn cursor_expand(&self) -> Option<bool> {
+        self.bool_key("General", "CursorExpand")
+    }
+
+    pub fn set_cursor_expand(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "CursorExpand", val);
+    }
+
+    pub fn cursor_trail_rotate(&self) -> Option<bool> {
+        self.bool_key("General", "CursorTrailRotate")
+    }
+
+    pub fn set_cursor_trail_rotate(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "CursorTrailRotate", val);
+    }
+
+    pub fn cursor_center(&self) -> Option<bool> {
+        self.bool_key("General", "CursorCenter")
+    }
+
+    pub fn set_cursor_center(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "CursorCenter", val);
+    }
+
+    pub fn hit_circle_overlay_above_number(&self) -> Option<bool> {
+        self.bool_key("General", "HitCircleOverlayAboveNumber")
+    }
+
+    pub fn set_hit_circle_overlay_above_number(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "HitCircleOverlayAboveNumber", val);
+    }
+
+    pub fn allow_slider_ball_tint(&self) -> Option<bool> {
+        self.bool_key("General", "AllowSliderBallTint")
+    }
+
+    pub fn set_allow_slider_ball_tint(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "AllowSliderBallTint", val);
+    }
+
+    pub fn animation_framerate(&self) -> Option<i32> {
+        self.i32_key("General", "AnimationFramerate")
+    }
+
+    pub fn set_animation_framerate(&mut self, val: Option<i32>) {
+        self.set_i32_key("General", "AnimationFramerate", val);
+    }
+
+    pub fn layered_hit_sounds(&self) -> Option<bool> {
+        self.bool_key("General", "LayeredHitSounds")
+    }
+
+    pub fn set_layered_hit_sounds(&mut self, val: Option<bool>) {
+        self.set_bool_key("General", "LayeredHitSounds", val);
+    }
+
+    // Extended [Fonts]
+    pub fn hit_circle_overlap(&self) -> Option<i32> {
+        self.i32_key("Fonts", "HitCircleOverlap")
+    }
+
+    pub fn set_hit_circle_overlap(&mut self, val: Option<i32>) {
+        self.set_i32_key("Fonts", "HitCircleOverlap", val);
+    }
+
+    pub fn score_overlap(&self) -> Option<i32> {
+        self.i32_key("Fonts", "ScoreOverlap")
+    }
+
+    pub fn set_score_overlap(&mut self, val: Option<i32>) {
+        self.set_i32_key("Fonts", "ScoreOverlap", val);
+    }
+
+    pub fn combo_overlap(&self) -> Option<i32> {
+        self.i32_key("Fonts", "ComboOverlap")
+    }
+
+    pub fn set_combo_overlap(&mut self, val: Option<i32>) {
+        self.set_i32_key("Fonts", "ComboOverlap", val);
     }
 
     pub fn fonts(&self) -> &[(String, String)] {
@@ -342,4 +530,46 @@ HitCircleOverlayAboveNumber: 0
         );
         assert_eq!(base.skin_name(), Some("My Mixed Skin"));
     }
+
+    #[test]
+    fn extended_colours_roundtrip() {
+        let mut ini = SkinIni::default();
+        assert_eq!(ini.slider_track_override(), None);
+        ini.set_slider_track_override(Some((30, 40, 50)));
+        ini.set_slider_border(Some((200, 210, 220)));
+        ini.set_menu_glow(Some((10, 20, 30)));
+        assert_eq!(ini.slider_track_override(), Some((30, 40, 50)));
+        assert_eq!(ini.slider_border(), Some((200, 210, 220)));
+        assert_eq!(ini.menu_glow(), Some((10, 20, 30)));
+
+        let serialized = ini.serialize();
+        let reparsed = SkinIni::parse(&serialized);
+        assert_eq!(reparsed.slider_track_override(), Some((30, 40, 50)));
+        assert_eq!(reparsed.slider_border(), Some((200, 210, 220)));
+        assert_eq!(reparsed.menu_glow(), Some((10, 20, 30)));
+
+        ini.set_slider_track_override(None);
+        assert_eq!(ini.slider_track_override(), None);
+    }
+
+    #[test]
+    fn extended_general_and_fonts_roundtrip() {
+        let mut ini = SkinIni::default();
+        ini.set_cursor_rotate(Some(true));
+        ini.set_cursor_expand(Some(false));
+        ini.set_animation_framerate(Some(60));
+        ini.set_hit_circle_overlay_above_number(Some(true));
+        ini.set_hit_circle_overlap(Some(3));
+        ini.set_score_overlap(Some(2));
+
+        let serialized = ini.serialize();
+        let reparsed = SkinIni::parse(&serialized);
+        assert_eq!(reparsed.cursor_rotate(), Some(true));
+        assert_eq!(reparsed.cursor_expand(), Some(false));
+        assert_eq!(reparsed.animation_framerate(), Some(60));
+        assert_eq!(reparsed.hit_circle_overlay_above_number(), Some(true));
+        assert_eq!(reparsed.hit_circle_overlap(), Some(3));
+        assert_eq!(reparsed.score_overlap(), Some(2));
+    }
 }
+
