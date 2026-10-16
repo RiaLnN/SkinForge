@@ -40,25 +40,25 @@ pub struct Skin {
 
 /// Операция патча — зеркалит `PatchOperation`. Строится через конструкторы
 /// ниже, чтобы вызывающий код не мог собрать невалидную комбинацию полей.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchOperation {
-    op: &'static str,
+    pub op: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    source_id: Option<String>,
+    pub source_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    new_id: Option<String>,
+    pub new_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    creator: Option<String>,
+    pub creator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    skin_id: Option<String>,
+    pub skin_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    filename: Option<String>,
+    pub filename: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    file_hash: Option<String>,
+    pub file_hash: Option<String>,
 }
 
 impl PatchOperation {
@@ -69,7 +69,7 @@ impl PatchOperation {
         creator: impl Into<String>,
     ) -> Self {
         Self {
-            op: "duplicate_skin",
+            op: "duplicate_skin".to_string(),
             source_id: Some(source_id.into()),
             new_id: Some(new_id.into()),
             name: Some(name.into()),
@@ -87,7 +87,7 @@ impl PatchOperation {
         file_hash: impl Into<String>,
     ) -> Self {
         Self {
-            op: "add_file",
+            op: "add_file".to_string(),
             source_id: None,
             new_id: None,
             name: None,
@@ -101,7 +101,7 @@ impl PatchOperation {
 
     pub fn remove_file(skin_id: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
-            op: "remove_file",
+            op: "remove_file".to_string(),
             source_id: None,
             new_id: None,
             name: None,
@@ -115,7 +115,7 @@ impl PatchOperation {
 
     pub fn soft_delete_skin(id: impl Into<String>) -> Self {
         Self {
-            op: "soft_delete_skin",
+            op: "soft_delete_skin".to_string(),
             source_id: None,
             new_id: None,
             name: None,

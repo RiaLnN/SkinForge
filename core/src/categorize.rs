@@ -27,6 +27,172 @@ pub struct ComponentInfo {
     /// сохраняются с цифрой.
     pub component_key: String,
 }
+/// Канонические курируемые слоты для микширования (соответствуют слотам в GUI)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ComponentSlot {
+    // Cursor
+    Cursor,
+    CursorTrail,
+    CursorMiddle,
+    CursorSmoke,
+    // Gameplay
+    Hitcircle,
+    HitcircleOverlay,
+    ApproachCircle,
+    SliderBall,
+    SliderFollowCircle,
+    ReverseArrow,
+    SpinnerCircle,
+    // Audio
+    Hitnormal,
+    Hitwhistle,
+    Hitfinish,
+    Hitclap,
+    Combobreak,
+    SectionPass,
+    SectionFail,
+    // Interface
+    ScoreNumbers,
+    PauseMenu,
+}
+
+impl ComponentSlot {
+    pub fn all() -> &'static [ComponentSlot] {
+        &[
+            ComponentSlot::Cursor,
+            ComponentSlot::CursorTrail,
+            ComponentSlot::CursorMiddle,
+            ComponentSlot::CursorSmoke,
+            ComponentSlot::Hitcircle,
+            ComponentSlot::HitcircleOverlay,
+            ComponentSlot::ApproachCircle,
+            ComponentSlot::SliderBall,
+            ComponentSlot::SliderFollowCircle,
+            ComponentSlot::ReverseArrow,
+            ComponentSlot::SpinnerCircle,
+            ComponentSlot::Hitnormal,
+            ComponentSlot::Hitwhistle,
+            ComponentSlot::Hitfinish,
+            ComponentSlot::Hitclap,
+            ComponentSlot::Combobreak,
+            ComponentSlot::SectionPass,
+            ComponentSlot::SectionFail,
+            ComponentSlot::ScoreNumbers,
+            ComponentSlot::PauseMenu,
+        ]
+    }
+
+    pub fn category(&self) -> ComponentCategory {
+        match self {
+            Self::Cursor | Self::CursorTrail | Self::CursorMiddle | Self::CursorSmoke => {
+                ComponentCategory::Cursor
+            }
+            Self::Hitcircle
+            | Self::HitcircleOverlay
+            | Self::ApproachCircle
+            | Self::SliderBall
+            | Self::SliderFollowCircle
+            | Self::ReverseArrow
+            | Self::SpinnerCircle => ComponentCategory::Gameplay,
+            Self::Hitnormal
+            | Self::Hitwhistle
+            | Self::Hitfinish
+            | Self::Hitclap
+            | Self::Combobreak
+            | Self::SectionPass
+            | Self::SectionFail => ComponentCategory::Audio,
+            Self::ScoreNumbers | Self::PauseMenu => ComponentCategory::Interface,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Cursor => "Cursor",
+            Self::CursorTrail => "Cursor Trail",
+            Self::CursorMiddle => "Cursor Middle",
+            Self::CursorSmoke => "Cursor Smoke",
+            Self::Hitcircle => "Hitcircle",
+            Self::HitcircleOverlay => "Hitcircle Overlay",
+            Self::ApproachCircle => "Approach Circle",
+            Self::SliderBall => "Slider Ball",
+            Self::SliderFollowCircle => "Slider Follow Circle",
+            Self::ReverseArrow => "Reverse Arrow",
+            Self::SpinnerCircle => "Spinner Circle",
+            Self::Hitnormal => "Hitnormal",
+            Self::Hitwhistle => "Hitwhistle",
+            Self::Hitfinish => "Hitfinish",
+            Self::Hitclap => "Hitclap",
+            Self::Combobreak => "Combobreak",
+            Self::SectionPass => "Section Pass",
+            Self::SectionFail => "Section Fail",
+            Self::ScoreNumbers => "Score Numbers",
+            Self::PauseMenu => "Pause Menu",
+        }
+    }
+
+    pub fn primary_filename(&self) -> &'static str {
+        match self {
+            Self::Cursor => "cursor.png",
+            Self::CursorTrail => "cursortrail.png",
+            Self::CursorMiddle => "cursormiddle.png",
+            Self::CursorSmoke => "cursor-smoke.png",
+            Self::Hitcircle => "hitcircle.png",
+            Self::HitcircleOverlay => "hitcircleoverlay.png",
+            Self::ApproachCircle => "approachcircle.png",
+            Self::SliderBall => "sliderb0.png",
+            Self::SliderFollowCircle => "sliderfollowcircle.png",
+            Self::ReverseArrow => "reversearrow.png",
+            Self::SpinnerCircle => "spinner-circle.png",
+            Self::Hitnormal => "normal-hitnormal.wav",
+            Self::Hitwhistle => "normal-hitwhistle.wav",
+            Self::Hitfinish => "normal-hitfinish.wav",
+            Self::Hitclap => "normal-hitclap.wav",
+            Self::Combobreak => "combobreak.wav",
+            Self::SectionPass => "section-pass.png",
+            Self::SectionFail => "section-fail.png",
+            Self::ScoreNumbers => "score-0.png",
+            Self::PauseMenu => "pause-overlay.png",
+        }
+    }
+
+    pub fn can_be_none(&self) -> bool {
+        matches!(
+            self,
+            Self::CursorMiddle
+                | Self::CursorSmoke
+                | Self::Combobreak
+                | Self::CursorTrail
+                | Self::SliderFollowCircle
+        )
+    }
+
+    /// Проверяет, относится ли данный классифицированный файл к этому слоту.
+    pub fn matches(&self, info: &ComponentInfo) -> bool {
+        let k = info.component_key.as_str();
+        match self {
+            Self::Cursor => k == "cursor",
+            Self::CursorTrail => k == "cursortrail" || k == "cursor-trail",
+            Self::CursorMiddle => k == "cursormiddle" || k == "cursor-middle",
+            Self::CursorSmoke => k == "cursor-smoke",
+            Self::Hitcircle => k == "hitcircle",
+            Self::HitcircleOverlay => k == "hitcircleoverlay",
+            Self::ApproachCircle => k == "approachcircle",
+            Self::SliderBall => k.starts_with("sliderb"),
+            Self::SliderFollowCircle => k == "sliderfollowcircle",
+            Self::ReverseArrow => k == "reversearrow",
+            Self::SpinnerCircle => k == "spinner-circle",
+            Self::Hitnormal => k == "hitnormal",
+            Self::Hitwhistle => k == "hitwhistle",
+            Self::Hitfinish => k == "hitfinish",
+            Self::Hitclap => k == "hitclap",
+            Self::Combobreak => k == "combobreak",
+            Self::SectionPass => k == "section-pass",
+            Self::SectionFail => k == "section-fail",
+            Self::ScoreNumbers => k.starts_with("score-"),
+            Self::PauseMenu => k.starts_with("pause-"),
+        }
+    }
+}
 
 // Точные базовые имена (после снятия @2x и цифрового суффикса-вариации).
 const GAMEPLAY_BASES: &[&str] = &[

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::bridge::PatchOperation;
-use crate::categorize::{self, ComponentCategory, ComponentInfo};
+use crate::bridge::{PatchOperation, Skin};
+use crate::categorize::{self, ComponentCategory, ComponentInfo, ComponentSlot};
 use crate::error::{CoreError, CoreResult};
 use crate::skin_ini::SkinIni;
 use crate::storage;
@@ -179,6 +179,136 @@ pub fn build_patch(files_dir: &Path, plan: &MixPlan) -> CoreResult<GeneratedPatc
     })
 }
 
+/// Источник компонента для конкретного слота.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotSource {
+    /// Использовать файл из базового скина (поведение по умолчанию).
+    Base,
+    /// Взять компонент из другого установленного скина (по ID скина).
+    Donor(String),
+    /// Полностью удалить компонент (применимо для cursormiddle, combobreak и т.д.).
+    None,
+}
+
+/// Назначение слота для микширования.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotAssignment {
+    pub slot: ComponentSlot,
+    pub source: SlotSource,
+}
+
+/// План микширования на основе манифестов скинов из Realm (zero-copy).
+#[derive(Debug, Clone)]
+pub struct ManifestMixPlan {
+    pub base_skin_id: String,
+    pub new_skin_name: String,
+    pub new_skin_creator: String,
+    pub slots: Vec<SlotAssignment>,
+    pub custom_skin_ini_hash: Option<String>,
+}
+
+/// Строит патч для `realm-bridge` на основе манифестов скинов из базы:
+/// - `duplicate_skin`: клонирование базы под новым ID
+/// - `add_file`: ссылки на существующие хэши файлов из доноров (без дублирования на диске)
+/// - `remove_file`: удаление сиротских `@2x` файлов или отключенных компонентов (None)
+/// - фоллбэк: если у донора нет компонента, скин оставляет базовый файл
+pub fn resolve_manifest_mix(
+    installed_skins: &[Skin],
+    plan: &ManifestMixPlan,
+) -> CoreResult<GeneratedPatch> {
+    let base_skin = installed_skins
+        .iter()
+        .find(|s| s.id == plan.base_skin_id)
+        .ok_or_else(|| {
+            CoreError::BackupFailed(format!("Базовый скин с ID '{}' не найден", plan.base_skin_id))
+        })?;
+
+    let new_skin_id = uuid::Uuid::new_v4().to_string();
+
+    let mut operations = vec![PatchOperation::duplicate_skin(
+        base_skin.id.clone(),
+        new_skin_id.clone(),
+        plan.new_skin_name.clone(),
+        plan.new_skin_creator.clone(),
+    )];
+
+    for assignment in &plan.slots {
+        let slot = assignment.slot;
+        let base_files: Vec<_> = base_skin
+            .files
+            .iter()
+            .filter(|f| {
+                let info = categorize::classify(&f.filename);
+                slot.matches(&info)
+            })
+            .collect();
+
+        match &assignment.source {
+            SlotSource::Base => {}
+            SlotSource::None => {
+                for base_file in base_files {
+                    operations.push(PatchOperation::remove_file(
+                        new_skin_id.clone(),
+                        base_file.filename.clone(),
+                    ));
+                }
+            }
+            SlotSource::Donor(donor_id) => {
+                if let Some(donor_skin) = installed_skins.iter().find(|s| &s.id == donor_id) {
+                    let donor_files: Vec<_> = donor_skin
+                        .files
+                        .iter()
+                        .filter(|f| {
+                            let info = categorize::classify(&f.filename);
+                            slot.matches(&info)
+                        })
+                        .collect();
+
+                    if donor_files.is_empty() {
+                        // Фоллбэк: если донор не имеет компонента, остаемся на базе
+                        continue;
+                    }
+
+                    for donor_file in &donor_files {
+                        operations.push(PatchOperation::add_file(
+                            new_skin_id.clone(),
+                            donor_file.filename.clone(),
+                            donor_file.file_hash.clone(),
+                        ));
+                    }
+
+                    // Прунинг сиротских файлов базы (например, у базы был cursor@2x, а у донора только cursor):
+                    for base_file in base_files {
+                        if !donor_files
+                            .iter()
+                            .any(|df| df.filename.eq_ignore_ascii_case(&base_file.filename))
+                        {
+                            operations.push(PatchOperation::remove_file(
+                                new_skin_id.clone(),
+                                base_file.filename.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ini_hash) = &plan.custom_skin_ini_hash {
+        operations.push(PatchOperation::add_file(
+            new_skin_id.clone(),
+            "skin.ini",
+            ini_hash.clone(),
+        ));
+    }
+
+    Ok(GeneratedPatch {
+        new_skin_id,
+        operations,
+    })
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +415,125 @@ mod tests {
         assert_eq!(stored_files.len(), 1);
 
         fs::remove_dir_all(&work_dir).ok();
+    }
+
+    fn make_test_skin(id: &str, name: &str, files: &[(&str, &str)]) -> Skin {
+        Skin {
+            id: id.to_string(),
+            name: name.to_string(),
+            creator: "test".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: files
+                .iter()
+                .map(|(f, h)| crate::bridge::SkinFile {
+                    filename: f.to_string(),
+                    file_hash: h.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn mix_plan_generates_zero_copy_references() {
+        let base = make_test_skin("base-id", "Base", &[("cursor.png", "base_hash")]);
+        let donor = make_test_skin("donor-id", "Donor", &[("cursor.png", "donor_hash")]);
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::Cursor,
+                source: SlotSource::Donor("donor-id".to_string()),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix(&[base, donor], &plan).unwrap();
+        assert_eq!(patch.operations.len(), 2);
+        assert_eq!(patch.operations[0].op, "duplicate_skin");
+        assert_eq!(patch.operations[1].op, "add_file");
+        assert_eq!(patch.operations[1].filename.as_deref(), Some("cursor.png"));
+        assert_eq!(patch.operations[1].file_hash.as_deref(), Some("donor_hash"));
+    }
+
+    #[test]
+    fn mix_plan_removes_orphaned_2x_sprites() {
+        let base = make_test_skin(
+            "base-id",
+            "Base",
+            &[("cursor.png", "base_1x"), ("cursor@2x.png", "base_2x")],
+        );
+        let donor = make_test_skin("donor-id", "Donor", &[("cursor.png", "donor_1x")]);
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::Cursor,
+                source: SlotSource::Donor("donor-id".to_string()),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix(&[base, donor], &plan).unwrap();
+        assert_eq!(patch.operations.len(), 3);
+        assert!(patch
+            .operations
+            .iter()
+            .any(|op| op.op == "add_file" && op.filename.as_deref() == Some("cursor.png")));
+        assert!(patch
+            .operations
+            .iter()
+            .any(|op| op.op == "remove_file" && op.filename.as_deref() == Some("cursor@2x.png")));
+    }
+
+    #[test]
+    fn mix_plan_handles_explicit_none() {
+        let base = make_test_skin("base-id", "Base", &[("cursormiddle.png", "mid_hash")]);
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::CursorMiddle,
+                source: SlotSource::None,
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix(&[base], &plan).unwrap();
+        assert_eq!(patch.operations.len(), 2);
+        assert_eq!(patch.operations[1].op, "remove_file");
+        assert_eq!(
+            patch.operations[1].filename.as_deref(),
+            Some("cursormiddle.png")
+        );
+    }
+
+    #[test]
+    fn mix_plan_falls_back_when_donor_lacks_component() {
+        let base = make_test_skin("base-id", "Base", &[("approachcircle.png", "base_app_hash")]);
+        let donor = make_test_skin("donor-id", "Donor", &[("cursor.png", "donor_cursor_hash")]);
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base-id".to_string(),
+            new_skin_name: "Mixed".to_string(),
+            new_skin_creator: "me".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::ApproachCircle,
+                source: SlotSource::Donor("donor-id".to_string()),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let patch = resolve_manifest_mix(&[base, donor], &plan).unwrap();
+        assert_eq!(patch.operations.len(), 1);
+        assert_eq!(patch.operations[0].op, "duplicate_skin");
     }
 }
