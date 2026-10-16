@@ -145,6 +145,8 @@ impl eframe::App for MixerApp {
                                     installed_skins: self.state.installed_skins.clone(),
                                     files_dir,
                                     client_realm_path,
+                                    set_active_on_build: self.state.set_active_on_build,
+                                    extended_ini: self.state.extended_ini.clone(),
                                 },
                             )));
                         }

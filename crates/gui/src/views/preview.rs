@@ -299,7 +299,7 @@ fn render_mix_summary(ui: &mut egui::Ui, state: &AppState) {
     for slot in ComponentSlot::all() {
         match state.slot_sources.get(slot).unwrap_or(&SlotSource::Base) {
             SlotSource::Base => base_count += 1,
-            SlotSource::Donor(_) => donor_count += 1,
+            SlotSource::Donor(_) | SlotSource::CustomFile(_) => donor_count += 1,
             SlotSource::None => none_count += 1,
         }
     }

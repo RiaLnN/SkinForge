@@ -137,6 +137,10 @@ fn render_slot_row(ui: &mut egui::Ui, state: &mut AppState, slot: ComponentSlot)
     let display_text = match &current_source {
         SlotSource::Base => "Base skin (foundation)".to_string(),
         SlotSource::None => "Disable / Remove (None)".to_string(),
+        SlotSource::CustomFile(path) => {
+            let name = path.file_name().and_then(|f| f.to_str()).unwrap_or("custom");
+            format!("Custom file ({name})")
+        }
         SlotSource::Donor(id) => state
             .installed_skins
             .iter()
@@ -172,6 +176,13 @@ fn render_slot_row(ui: &mut egui::Ui, state: &mut AppState, slot: ComponentSlot)
                             egui::RichText::new("Removed")
                                 .size(11.0)
                                 .color(egui::Color32::from_rgb(255, 180, 50)),
+                        );
+                    }
+                    SlotSource::CustomFile(_) => {
+                        ui.label(
+                            egui::RichText::new("Custom")
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(100, 200, 255)),
                         );
                     }
                     SlotSource::Donor(_) => {

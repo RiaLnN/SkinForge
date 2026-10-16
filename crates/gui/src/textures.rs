@@ -50,6 +50,45 @@ impl TextureCache {
         self.cache.get(hash)
     }
 
+    pub fn get_or_load_path(
+        &mut self,
+        ctx: &egui::Context,
+        path: &Path,
+    ) -> Option<&egui::TextureHandle> {
+        let key = path.to_string_lossy().to_string();
+        if !self.cache.contains_key(&key) {
+            if let Ok(bytes) = std::fs::read(path) {
+                if let Ok(img) = image::load_from_memory(&bytes) {
+                    let rgba = img.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    let color_image =
+                        egui::ColorImage::from_rgba_unmultiplied(size, &rgba.into_raw());
+                    let handle = ctx.load_texture(
+                        format!("tex_custom_{key}"),
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.cache.insert(key.clone(), handle);
+                }
+            }
+        }
+        self.cache.get(&key)
+    }
+
+    pub fn get_or_load_slot(
+        &mut self,
+        ctx: &egui::Context,
+        state: &AppState,
+        slot: ComponentSlot,
+    ) -> Option<&egui::TextureHandle> {
+        let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
+        if let SlotSource::CustomFile(path) = source {
+            return self.get_or_load_path(ctx, path);
+        }
+        let hash = resolve_slot_file_hash(state, slot)?;
+        self.get_or_load(ctx, state.files_dir.as_deref(), hash)
+    }
+
     pub fn clear(&mut self) {
         self.cache.clear();
     }
@@ -61,6 +100,7 @@ pub fn resolve_slot_file_hash(state: &AppState, slot: ComponentSlot) -> Option<&
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
     match source {
         SlotSource::None => None,
+        SlotSource::CustomFile(_) => None,
         SlotSource::Base => find_file_hash_for_slot(state.base_skin()?, slot),
         SlotSource::Donor(donor_id) => {
             let donor_skin = state.installed_skins.iter().find(|s| &s.id == donor_id);
@@ -81,6 +121,10 @@ pub fn resolve_slot_texture_hash(state: &AppState, slot: ComponentSlot) -> Optio
 
 /// Returns the absolute path to a resource file in osu!lazer content-addressed storage.
 pub fn resolve_slot_file_path(state: &AppState, slot: ComponentSlot) -> Option<std::path::PathBuf> {
+    let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
+    if let SlotSource::CustomFile(path) = source {
+        return Some(path.clone());
+    }
     let hash = resolve_slot_file_hash(state, slot)?;
     let files_dir = state.files_dir.as_ref()?;
     Some(skinforge_core::paths::hashed_storage_path(files_dir, hash))

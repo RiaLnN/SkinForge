@@ -5,6 +5,8 @@ use skinforge_core::bridge::Skin;
 use skinforge_core::categorize::{ComponentCategory, ComponentSlot};
 use skinforge_core::mixer::{ManifestMixPlan, SlotAssignment, SlotSource};
 
+use skinforge_core::skin_ini::SkinIni;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     Category(ComponentCategory),
@@ -27,6 +29,11 @@ pub struct AppState {
     pub status_message: Option<(String, bool)>,
     pub is_working: bool,
     pub is_game_running: bool,
+    pub set_active_on_build: bool,
+    pub show_advanced_cursor: bool,
+    pub show_advanced_gameplay: bool,
+    pub show_advanced_colors: bool,
+    pub extended_ini: SkinIni,
 }
 
 impl Default for AppState {
@@ -56,6 +63,11 @@ impl Default for AppState {
             status_message: None,
             is_working: false,
             is_game_running: false,
+            set_active_on_build: true,
+            show_advanced_cursor: false,
+            show_advanced_gameplay: false,
+            show_advanced_colors: false,
+            extended_ini: SkinIni::default(),
         }
     }
 }
@@ -79,7 +91,30 @@ impl AppState {
         if let Some(skin) = self.installed_skins.iter().find(|s| s.id == skin_id) {
             self.selected_base_skin_id = Some(skin.id.clone());
             self.new_skin_name = format!("{} + Mixed", skin.name);
+
+            // Attempt to load base skin's skin.ini into extended_ini
+            if let Some(files_dir) = &self.files_dir {
+                if let Some(ini_file) = skin
+                    .files
+                    .iter()
+                    .find(|f| f.filename.eq_ignore_ascii_case("skin.ini"))
+                {
+                    let path =
+                        skinforge_core::paths::hashed_storage_path(files_dir, &ini_file.file_hash);
+                    if let Ok(text) = std::fs::read_to_string(&path) {
+                        self.extended_ini = SkinIni::parse(&text);
+                        let combos = self.extended_ini.combo_colours();
+                        if !combos.is_empty() {
+                            self.combo_colours = combos.into_iter().map(|(_, rgb)| rgb).collect();
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    pub fn set_slot_custom_file(&mut self, slot: ComponentSlot, path: PathBuf) {
+        self.slot_sources.insert(slot, SlotSource::CustomFile(path));
     }
 
     /// Returns a reference to the currently selected base skin, if any.
@@ -204,4 +239,16 @@ mod tests {
             Some(&SlotSource::Base)
         );
     }
+
+    #[test]
+    fn custom_file_assignment_updates_slot_sources() {
+        let mut state = AppState::default();
+        let file = PathBuf::from("/tmp/custom_cursor.png");
+        state.set_slot_custom_file(ComponentSlot::Cursor, file.clone());
+        assert_eq!(
+            state.slot_sources.get(&ComponentSlot::Cursor),
+            Some(&SlotSource::CustomFile(file))
+        );
+    }
 }
+

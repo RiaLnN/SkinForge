@@ -15,6 +15,8 @@ pub struct ApplyMixTask {
     pub installed_skins: Vec<Skin>,
     pub files_dir: PathBuf,
     pub client_realm_path: PathBuf,
+    pub set_active_on_build: bool,
+    pub extended_ini: SkinIni,
 }
 
 pub enum WorkerTask {
@@ -72,6 +74,8 @@ pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
                     &task.installed_skins,
                     &task.files_dir,
                     &task.client_realm_path,
+                    task.set_active_on_build,
+                    &task.extended_ini,
                 );
                 let _ = tx.send(AppEvent::MixCompleted(result));
             }
@@ -85,6 +89,8 @@ fn execute_apply_mix(
     installed_skins: &[Skin],
     files_dir: &Path,
     client_realm_path: &Path,
+    set_active_on_build: bool,
+    extended_ini: &SkinIni,
 ) -> Result<String, String> {
     // 1. Process check
     process_guard::ensure_game_not_running().map_err(|e| format!("Cannot apply skin: {e}"))?;
@@ -96,24 +102,7 @@ fn execute_apply_mix(
         .map_err(|e| format!("Failed to initialize RealmBridge: {e}"))?;
 
     // 3. Prepare skin.ini
-    let base_skin = installed_skins
-        .iter()
-        .find(|s| s.id == plan.base_skin_id)
-        .ok_or_else(|| "Base skin not found in installed skins list".to_string())?;
-
-    let base_ini_file = base_skin
-        .files
-        .iter()
-        .find(|f| f.filename.eq_ignore_ascii_case("skin.ini"));
-
-    let base_ini_text = if let Some(f) = base_ini_file {
-        let path = paths::hashed_storage_path(files_dir, &f.file_hash);
-        std::fs::read_to_string(&path).unwrap_or_default()
-    } else {
-        "[General]\n".to_string()
-    };
-
-    let mut skin_ini = SkinIni::parse(&base_ini_text);
+    let mut skin_ini = extended_ini.clone();
     skin_ini.set_general("Name", &plan.new_skin_name);
     skin_ini.set_general("Author", &plan.new_skin_creator);
     skin_ini.set_combo_colours(combo_colours);
@@ -154,13 +143,22 @@ fn execute_apply_mix(
     let mut plan = plan.clone();
     plan.custom_skin_ini_hash = Some(stored.hash);
 
-    let patch = mixer::resolve_manifest_mix(installed_skins, &plan)
+    let patch = mixer::resolve_manifest_mix_with_storage(files_dir, installed_skins, &plan)
         .map_err(|e| format!("Failed to build mix plan: {e}"))?;
 
     // 5. Apply patch via realm-bridge (automatic client.realm backup created inside)
     let outcome = bridge
         .apply_patch(client_realm_path, patch.operations)
         .map_err(|e| format!("Failed to apply patch in Realm: {e}"))?;
+
+    // 6. If requested, set as active skin in game.ini
+    if set_active_on_build {
+        if let Some(data_dir) = client_realm_path.parent() {
+            if let Err(e) = skinforge_core::game_ini::set_active_skin(data_dir, &patch.new_skin_id) {
+                eprintln!("Warning: failed to set active skin in game.ini: {e}");
+            }
+        }
+    }
 
     Ok(format!(
         "Skin '{}' successfully installed into osu!lazer! (Backup: {:?})",
