@@ -87,7 +87,14 @@ pub fn render_preview(
 
         ui.add_space(12.0);
 
-        // 4. Build button
+        // 4. Options
+        ui.checkbox(
+            &mut state.set_active_on_build,
+            "Set as active skin in osu!lazer",
+        );
+        ui.add_space(8.0);
+
+        // 5. Build button
         let can_apply = !state.is_working && !state.is_game_running && state.base_skin().is_some();
 
         ui.add_enabled_ui(can_apply, |ui| {

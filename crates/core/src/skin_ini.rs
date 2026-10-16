@@ -147,7 +147,8 @@ impl SkinIni {
 
     pub fn set_colour_key(&mut self, key: &str, val: Option<(u8, u8, u8)>) {
         if let Some((r, g, b)) = val {
-            self.get_or_create_section_mut("Colours").set(key, &format!("{r},{g},{b}"));
+            self.get_or_create_section_mut("Colours")
+                .set(key, format!("{r},{g},{b}"));
         } else if let Some(sec) = self.section_mut("Colours") {
             sec.remove(key);
         }
@@ -164,7 +165,8 @@ impl SkinIni {
 
     fn set_bool_key(&mut self, section: &str, key: &str, val: Option<bool>) {
         if let Some(b) = val {
-            self.get_or_create_section_mut(section).set(key, if b { "1" } else { "0" });
+            self.get_or_create_section_mut(section)
+                .set(key, if b { "1" } else { "0" });
         } else if let Some(sec) = self.section_mut(section) {
             sec.remove(key);
         }
@@ -176,7 +178,8 @@ impl SkinIni {
 
     fn set_i32_key(&mut self, section: &str, key: &str, val: Option<i32>) {
         if let Some(v) = val {
-            self.get_or_create_section_mut(section).set(key, &v.to_string());
+            self.get_or_create_section_mut(section)
+                .set(key, v.to_string());
         } else if let Some(sec) = self.section_mut(section) {
             sec.remove(key);
         }
@@ -572,4 +575,3 @@ HitCircleOverlayAboveNumber: 0
         assert_eq!(reparsed.score_overlap(), Some(2));
     }
 }
-

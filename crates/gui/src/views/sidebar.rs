@@ -49,8 +49,12 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState) {
 
         ui.add_space(8.0);
 
-        // 4. Auto-backup
+        // 4. Options
         ui.checkbox(&mut state.auto_backup, "Auto-backup client.realm");
+        ui.checkbox(
+            &mut state.set_active_on_build,
+            "Auto-activate built skin in osu!lazer",
+        );
 
         ui.add_space(10.0);
         ui.separator();
