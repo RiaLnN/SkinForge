@@ -1,0 +1,11 @@
+[package]
+name = "osu-mixer-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+osu-mixer-core = { path = "../core" }
+
+[[bin]]
+name = "osu-mixer-gui"
+path = "src/main.rs"
