@@ -8,6 +8,7 @@
     <RootNamespace>RealmBridge</RootNamespace>
     <AssemblyName>realm-bridge</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 
   <ItemGroup>
