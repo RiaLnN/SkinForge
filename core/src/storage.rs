@@ -85,6 +85,37 @@ pub fn store_resource(files_dir: &Path, source: &Path) -> CoreResult<StoredFile>
     })
 }
 
+/// Сохраняет срез байтов напрямую в content-addressed хранилище `files_dir`
+/// по пути `files/<h0>/<h0h1>/<hash>`. Применяется для генерации нового `skin.ini`.
+pub fn store_resource_bytes(files_dir: &Path, bytes: &[u8]) -> CoreResult<StoredFile> {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash = hex_lowercase(&hasher.finalize());
+    let destination = hashed_storage_path(files_dir, &hash);
+
+    if destination.is_file() {
+        return Ok(StoredFile {
+            hash,
+            destination,
+            already_present: true,
+        });
+    }
+
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(io_err(parent))?;
+    }
+
+    let tmp_destination = destination.with_extension("tmp-copy");
+    std::fs::write(&tmp_destination, bytes).map_err(io_err(&tmp_destination))?;
+    std::fs::rename(&tmp_destination, &destination).map_err(io_err(&destination))?;
+
+    Ok(StoredFile {
+        hash,
+        destination,
+        already_present: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +161,22 @@ mod tests {
         assert_eq!(first.destination, second.destination);
 
         std::fs::remove_dir_all(&source_dir).ok();
+        std::fs::remove_dir_all(files_dir.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn store_resource_bytes_stores_and_deduplicates() {
+        let files_dir = temp_dir("bytes-root").join("files");
+        let bytes = b"[General]\nName: Test\n";
+
+        let first = store_resource_bytes(&files_dir, bytes).unwrap();
+        assert!(!first.already_present);
+        assert!(first.destination.is_file());
+
+        let second = store_resource_bytes(&files_dir, bytes).unwrap();
+        assert!(second.already_present);
+        assert_eq!(first.hash, second.hash);
+
         std::fs::remove_dir_all(files_dir.parent().unwrap()).ok();
     }
 }

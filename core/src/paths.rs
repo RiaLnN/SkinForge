@@ -110,6 +110,36 @@ pub fn hashed_storage_path(files_dir: &Path, hash_hex: &str) -> PathBuf {
     files_dir.join(first).join(first_two).join(hash_hex)
 }
 
+/// Ищет скомпилированный бинарник `realm-bridge` рядом с текущим исполняемым файлом,
+/// в стандартных выходных директориях сборки .NET или в рабочей директории.
+pub fn find_realm_bridge_binary() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("realm-bridge"));
+            candidates.push(dir.join("realm-bridge.exe"));
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("realm-bridge/bin/Release/net8.0/realm-bridge"));
+        candidates.push(cwd.join("realm-bridge/bin/Debug/net8.0/realm-bridge"));
+        candidates.push(cwd.join("realm-bridge/bin/Release/net8.0/realm-bridge.exe"));
+        candidates.push(cwd.join("realm-bridge/bin/Debug/net8.0/realm-bridge.exe"));
+        candidates.push(cwd.join("../realm-bridge/bin/Release/net8.0/realm-bridge"));
+        candidates.push(cwd.join("../realm-bridge/bin/Debug/net8.0/realm-bridge"));
+    }
+
+    for c in candidates {
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

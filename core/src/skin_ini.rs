@@ -221,6 +221,12 @@ impl SkinIni {
     }
 }
 
+impl std::fmt::Display for SkinIni {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.serialize())
+    }
+}
+
 fn parse_rgb(value: &str) -> Option<(u8, u8, u8)> {
     let mut parts = value.split(',').map(|p| p.trim());
     let r: u8 = parts.next()?.parse().ok()?;
