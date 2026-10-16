@@ -3,6 +3,7 @@ use eframe::egui;
 use osu_mixer_core::bridge::Skin;
 
 use crate::state::AppState;
+use crate::views::{categories, sidebar};
 
 pub enum AppEvent {
     SkinsLoaded(Result<Vec<Skin>, String>),
@@ -58,8 +59,33 @@ impl eframe::App for MixerApp {
             }
         }
 
+        egui::TopBottomPanel::top("top_status_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("osu! mixer (lazer)");
+                if self.state.is_working {
+                    ui.spinner();
+                    ui.label("Обработка...");
+                }
+                if let Some((msg, is_err)) = &self.state.status_message {
+                    let color = if *is_err {
+                        egui::Color32::from_rgb(255, 100, 100)
+                    } else {
+                        egui::Color32::from_rgb(56, 239, 125)
+                    };
+                    ui.colored_label(color, msg);
+                }
+            });
+        });
+
+        egui::SidePanel::left("sidebar_panel")
+            .default_width(280.0)
+            .width_range(240.0..=360.0)
+            .show(ctx, |ui| {
+                sidebar::render_sidebar(ui, &mut self.state);
+            });
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("osu! mixer (lazer)");
+            categories::render_categories(ui, &mut self.state);
         });
     }
 }

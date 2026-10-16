@@ -5,6 +5,12 @@ use osu_mixer_core::bridge::Skin;
 use osu_mixer_core::categorize::{ComponentCategory, ComponentSlot};
 use osu_mixer_core::mixer::{ManifestMixPlan, SlotAssignment, SlotSource};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveTab {
+    Category(ComponentCategory),
+    Colors,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub lazer_root: Option<PathBuf>,
@@ -17,7 +23,7 @@ pub struct AppState {
     pub slot_sources: HashMap<ComponentSlot, SlotSource>,
     pub combo_colours: Vec<(u8, u8, u8)>,
     pub auto_backup: bool,
-    pub active_tab: ComponentCategory,
+    pub active_tab: ActiveTab,
     pub status_message: Option<(String, bool)>,
     pub is_working: bool,
     pub is_game_running: bool,
@@ -46,7 +52,7 @@ impl Default for AppState {
                 (255, 170, 34),  // #ffaa22
             ],
             auto_backup: true,
-            active_tab: ComponentCategory::Cursor,
+            active_tab: ActiveTab::Category(ComponentCategory::Cursor),
             status_message: None,
             is_working: false,
             is_game_running: false,
