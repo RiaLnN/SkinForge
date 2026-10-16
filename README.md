@@ -4,8 +4,8 @@
 
 **Mix and customize osu!lazer skins with real-time preview and zero-copy performance.**
 
-[![Latest release](https://img.shields.io/github/v/release/RiaLnN/skinforge?style=flat-square)](https://github.com/RiaLnN/skinforge/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/RiaLnN/skinforge/total?style=flat-square)](https://github.com/RiaLnN/skinforge/releases)
+[![Latest release](https://img.shields.io/github/v/release/RiaLnN/SkinForge?style=flat-square)](https://github.com/RiaLnN/SkinForge/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/RiaLnN/SkinForge/total?style=flat-square)](https://github.com/RiaLnN/SkinForge/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey?style=flat-square)
 
@@ -28,7 +28,7 @@ In **osu!lazer**, skins are stored inside a Realm database (`client.realm`) with
 
 ## Download
 
-1. Visit the [**Releases page**](https://github.com/RiaLnN/skinforge/releases/latest).
+1. Visit the [**Releases page**](https://github.com/RiaLnN/SkinForge/releases/latest).
 2. Download the release archive for your operating system:
 
 | Platform | Archive | Contents |
