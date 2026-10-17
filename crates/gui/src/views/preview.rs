@@ -29,7 +29,9 @@ pub fn render_preview(
         ui.add_space(8.0);
 
         // 1. Interactive preview canvas
-        render_playfield_canvas(ui, state, textures);
+        if let Some(act) = render_playfield_canvas(ui, state, textures) {
+            action = act;
+        }
 
         ui.add_space(8.0);
         ui.separator();
@@ -75,6 +77,67 @@ pub fn render_preview(
                 .clicked()
             {
                 action = PreviewAction::PlaySlotSound(ComponentSlot::Combobreak);
+            }
+        });
+
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new(format!(
+                "{} Game & UI sounds preview:",
+                egui_phosphor::regular::SPEAKER_SIMPLE_LOW
+            ))
+            .strong(),
+        );
+        ui.add_space(4.0);
+
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button(format!("{} Section Pass", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::SectionPass);
+            }
+            if ui
+                .button(format!("{} Section Fail", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::SectionFail);
+            }
+            if ui
+                .button(format!("{} Applause", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::Applause);
+            }
+            if ui
+                .button(format!("{} Fail Sound", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::FailSound);
+            }
+            if ui
+                .button(format!("{} Menu Click", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::MenuClick);
+            }
+            if ui
+                .button(format!("{} Menu Hit", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::MenuHit);
+            }
+            if ui
+                .button(format!("{} Menu Back", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::MenuBack);
+            }
+            if ui
+                .button(format!("{} Pause Loop", egui_phosphor::regular::PLAY))
+                .clicked()
+            {
+                action = PreviewAction::PlaySlotSound(ComponentSlot::PauseLoop);
             }
         });
 
@@ -129,9 +192,13 @@ pub fn render_preview(
     action
 }
 
-fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut TextureCache) {
+fn render_playfield_canvas(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    textures: &mut TextureCache,
+) -> Option<PreviewAction> {
     let canvas_size = vec2(ui.available_width().max(260.0), 220.0);
-    let (response, painter) = ui.allocate_painter(canvas_size, egui::Sense::hover());
+    let (response, painter) = ui.allocate_painter(canvas_size, egui::Sense::click_and_drag());
     let rect = response.rect;
 
     // Canvas background
@@ -146,7 +213,24 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     let circle_radius = 42.0;
 
     let time = ui.input(|i| i.time);
-    let cycle = (time % 1.2) as f32 / 1.2;
+
+    let mut hit_action = None;
+    if response.clicked() {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if (pos - center).length() <= circle_radius * 1.25 {
+                state.trigger_hit(time);
+                hit_action = Some(PreviewAction::PlaySlotSound(ComponentSlot::Hitnormal));
+            }
+        }
+    }
+
+    let cycle = if let Some(hit_time) = state.last_hit_time {
+        let elapsed = (time - hit_time).max(0.0);
+        (elapsed % 1.2) as f32 / 1.2
+    } else {
+        (time % 1.2) as f32 / 1.2
+    };
+
     let scale = 2.4 - cycle * 1.4;
     let alpha = (cycle * 220.0 + 35.0).min(255.0) as u8;
     let approach_radius = circle_radius * scale;
@@ -227,6 +311,32 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
         );
     }
 
+    // 4b. Hit visual feedback (expanding ring + floating "300")
+    if let Some(hit_time) = state.last_hit_time {
+        let age = (time - hit_time) as f32;
+        if age < 0.35 {
+            let progress = age / 0.35;
+            let burst_radius = circle_radius + progress * 28.0;
+            let burst_alpha = ((1.0 - progress) * 255.0) as u8;
+            painter.circle_stroke(
+                center,
+                burst_radius,
+                egui::Stroke::new(
+                    3.0 * (1.0 - progress),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, burst_alpha),
+                ),
+            );
+            let text_pos = center - vec2(0.0, progress * 24.0);
+            painter.text(
+                text_pos,
+                egui::Align2::CENTER_CENTER,
+                "300",
+                egui::FontId::proportional(22.0),
+                Color32::from_rgba_unmultiplied(100, 230, 255, burst_alpha),
+            );
+        }
+    }
+
     // 5. Cursor
     let cursor_pos = if let Some(hover) = response.hover_pos() {
         hover
@@ -238,20 +348,37 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
             )
     };
 
-    // Cursor Trail
-    if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::CursorTrail) {
-        painter.image(
-            tex.id(),
-            Rect::from_center_size(cursor_pos - vec2(8.0, 8.0), vec2(24.0, 24.0)),
-            uv,
-            Color32::from_rgba_unmultiplied(255, 255, 255, 140),
-        );
-    } else {
-        painter.circle_filled(
-            cursor_pos - vec2(6.0, 6.0),
-            10.0,
-            Color32::from_rgba_unmultiplied(255, 255, 255, 60),
-        );
+    // Cursor Trail (fading trail history)
+    let is_trail_none = matches!(
+        state.slot_sources.get(&ComponentSlot::CursorTrail),
+        Some(SlotSource::None)
+    );
+
+    if !is_trail_none {
+        state.record_cursor_pos(cursor_pos, time);
+        let trail_tex = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::CursorTrail);
+
+        for &(trail_pos, t) in &state.cursor_trail_history {
+            let age = ((time - t) / 0.25).clamp(0.0, 1.0) as f32;
+            if age > 0.04 {
+                let alpha = ((1.0 - age) * 160.0) as u8;
+                let scale = 1.0 - age * 0.35;
+                if let Some(tex) = trail_tex {
+                    painter.image(
+                        tex.id(),
+                        Rect::from_center_size(trail_pos, vec2(24.0, 24.0) * scale),
+                        uv,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
+                    );
+                } else {
+                    painter.circle_filled(
+                        trail_pos,
+                        9.0 * scale,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (alpha as f32 * 0.4) as u8),
+                    );
+                }
+            }
+        }
     }
 
     // Cursor Body
@@ -278,6 +405,8 @@ fn render_playfield_canvas(ui: &mut egui::Ui, state: &AppState, textures: &mut T
     }
 
     ui.ctx().request_repaint();
+
+    hit_action
 }
 
 fn render_mix_summary(ui: &mut egui::Ui, state: &AppState) {
