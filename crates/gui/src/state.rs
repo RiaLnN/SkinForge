@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use eframe::egui;
 use skinforge_core::bridge::Skin;
 use skinforge_core::categorize::{ComponentCategory, ComponentSlot};
 use skinforge_core::mixer::{ManifestMixPlan, SlotAssignment, SlotSource};
@@ -34,6 +35,8 @@ pub struct AppState {
     pub show_advanced_gameplay: bool,
     pub show_advanced_colors: bool,
     pub extended_ini: SkinIni,
+    pub cursor_trail_history: Vec<(egui::Pos2, f64)>,
+    pub last_hit_time: Option<f64>,
 }
 
 impl Default for AppState {
@@ -68,11 +71,30 @@ impl Default for AppState {
             show_advanced_gameplay: false,
             show_advanced_colors: false,
             extended_ini: SkinIni::default(),
+            cursor_trail_history: Vec::new(),
+            last_hit_time: None,
         }
     }
 }
 
 impl AppState {
+    pub fn record_cursor_pos(&mut self, pos: egui::Pos2, time: f64) {
+        self.cursor_trail_history.retain(|(_, t)| time - *t <= 0.25);
+        if let Some((last_pos, _)) = self.cursor_trail_history.last() {
+            if (*last_pos - pos).length() < 1.0 {
+                return;
+            }
+        }
+        if self.cursor_trail_history.len() >= 32 {
+            self.cursor_trail_history.remove(0);
+        }
+        self.cursor_trail_history.push((pos, time));
+    }
+
+    pub fn trigger_hit(&mut self, time: f64) {
+        self.last_hit_time = Some(time);
+    }
+
     /// Loads skin list from database, filtering out built-in protected skins
     /// (Protected == true) and empty skins with zero files.
     pub fn set_installed_skins(&mut self, skins: Vec<Skin>) {
@@ -249,5 +271,25 @@ mod tests {
             state.slot_sources.get(&ComponentSlot::Cursor),
             Some(&SlotSource::CustomFile(file))
         );
+    }
+
+    #[test]
+    fn cursor_trail_history_and_hit_trigger() {
+        let mut state = AppState::default();
+        assert!(state.cursor_trail_history.is_empty());
+        assert_eq!(state.last_hit_time, None);
+
+        state.record_cursor_pos(egui::pos2(10.0, 10.0), 1.0);
+        state.record_cursor_pos(egui::pos2(15.0, 15.0), 1.1);
+        assert_eq!(state.cursor_trail_history.len(), 2);
+
+        // Advance time past 0.25s: old point at 1.0 should be pruned
+        state.record_cursor_pos(egui::pos2(20.0, 20.0), 1.3);
+        assert_eq!(state.cursor_trail_history.len(), 2);
+        assert_eq!(state.cursor_trail_history[0].1, 1.1);
+        assert_eq!(state.cursor_trail_history[1].1, 1.3);
+
+        state.trigger_hit(2.5);
+        assert_eq!(state.last_hit_time, Some(2.5));
     }
 }
