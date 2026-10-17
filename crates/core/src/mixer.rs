@@ -188,11 +188,7 @@ pub struct ManifestMixPlan {
 
 fn target_filename_for_custom_file(slot: ComponentSlot, source_path: &Path) -> String {
     let primary = slot.primary_filename();
-    let lower_primary = primary.to_ascii_lowercase();
-    let is_audio = lower_primary.ends_with(".wav")
-        || lower_primary.ends_with(".ogg")
-        || lower_primary.ends_with(".mp3");
-    if is_audio {
+    if slot.is_audio() {
         if let Some(ext) = source_path.extension().and_then(|e| e.to_str()) {
             let lower_ext = ext.to_ascii_lowercase();
             if lower_ext == "wav" || lower_ext == "ogg" || lower_ext == "mp3" {

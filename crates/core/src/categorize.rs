@@ -223,6 +223,16 @@ impl ComponentSlot {
 
     /// Checks whether a classified component info matches this slot.
     pub fn matches(&self, info: &ComponentInfo) -> bool {
+        let lower = info.filename.to_ascii_lowercase();
+        let (_, ext) = split_extension(&lower);
+        let is_audio_file = AUDIO_EXTENSIONS.contains(&ext);
+        if self.is_audio() && !is_audio_file {
+            return false;
+        }
+        if !self.is_audio() && *self != Self::HudLayout && is_audio_file {
+            return false;
+        }
+
         let k = info.component_key.as_str();
         match self {
             Self::Cursor => k == "cursor",
@@ -630,5 +640,19 @@ mod tests {
         assert!(!ComponentSlot::Cursor.is_audio());
         assert!(!ComponentSlot::Hitcircle.is_audio());
         assert!(!ComponentSlot::HudLayout.is_audio());
+    }
+
+    #[test]
+    fn audio_and_image_slots_do_not_cross_match() {
+        assert!(!ComponentSlot::SectionPass.matches_filename("section-pass.png"));
+        assert!(ComponentSlot::SectionPass.matches_filename("section-pass.wav"));
+        assert!(!ComponentSlot::SectionFail.matches_filename("section-fail.png"));
+        assert!(ComponentSlot::SectionFail.matches_filename("section-fail.wav"));
+
+        assert!(!ComponentSlot::MenuBack.matches_filename("menu-back.png"));
+        assert!(ComponentSlot::MenuBack.matches_filename("menuback.wav"));
+
+        assert!(!ComponentSlot::PauseMenu.matches_filename("pause-loop.wav"));
+        assert!(ComponentSlot::PauseMenu.matches_filename("pause-overlay.png"));
     }
 }

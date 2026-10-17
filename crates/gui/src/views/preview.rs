@@ -338,15 +338,16 @@ fn render_playfield_canvas(
     }
 
     // 5. Cursor
-    let cursor_pos = if let Some(hover) = response.hover_pos() {
-        hover
-    } else {
-        center
-            + vec2(
-                70.0 + (time * 1.6).cos() as f32 * 35.0,
-                (time * 1.6).sin() as f32 * 35.0,
-            )
-    };
+    let cursor_pos = response
+        .interact_pointer_pos()
+        .or_else(|| response.hover_pos())
+        .unwrap_or_else(|| {
+            center
+                + vec2(
+                    70.0 + (time * 1.6).cos() as f32 * 35.0,
+                    (time * 1.6).sin() as f32 * 35.0,
+                )
+        });
 
     // Cursor Trail (fading trail history)
     let is_trail_none = matches!(
