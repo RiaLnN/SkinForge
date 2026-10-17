@@ -37,6 +37,8 @@ pub struct AppState {
     pub extended_ini: SkinIni,
     pub cursor_trail_history: Vec<(egui::Pos2, f64)>,
     pub last_hit_time: Option<f64>,
+    pub demo_mode: bool,
+    pub real_installed_skins: Vec<Skin>,
 }
 
 impl Default for AppState {
@@ -73,11 +75,121 @@ impl Default for AppState {
             extended_ini: SkinIni::default(),
             cursor_trail_history: Vec::new(),
             last_hit_time: None,
+            demo_mode: false,
+            real_installed_skins: Vec::new(),
         }
     }
 }
 
+const DEMO_SKIN_CATALOG: &[(&str, &str)] = &[
+    ("WhiteCat 2.1 (CK)", "CYPERDARK"),
+    ("Yugen", "Garin"),
+    ("Aristia (Edit)", "Aristia"),
+    ("Bacon Boy 1.0", "Vaxei"),
+    ("Seoul v9 Personal", "cookiezi"),
+    ("Rafis 2018 HDDT", "Rafis"),
+    ("FlyingTuna Selyu", "FlyingTuna"),
+    ("BTMC Freedom Dive", "BeasttrollMC"),
+    ("Kamui [Remake]", "ReeK"),
+    ("Chocopafe 1.0", "Chocopafe"),
+    ("Miraie 2.0", "Miraie"),
+    ("Monko 2020", "Monko2k"),
+];
+
+fn apply_demo_names(skins: &[Skin]) -> Vec<Skin> {
+    skins
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let mut demo_skin = s.clone();
+            let (demo_name, demo_creator) = DEMO_SKIN_CATALOG[i % DEMO_SKIN_CATALOG.len()];
+            demo_skin.name = demo_name.to_string();
+            demo_skin.creator = demo_creator.to_string();
+            demo_skin
+        })
+        .collect()
+}
+
+pub fn generate_mock_demo_skins() -> Vec<Skin> {
+    DEMO_SKIN_CATALOG
+        .iter()
+        .take(6)
+        .enumerate()
+        .map(|(i, (name, creator))| {
+            let id = format!("demo-skin-{i}");
+            let files = ComponentSlot::all()
+                .iter()
+                .map(|slot| skinforge_core::bridge::SkinFile {
+                    filename: slot.primary_filename().to_string(),
+                    file_hash: format!("mock_hash_{i}_{}", slot.primary_filename()),
+                })
+                .collect();
+            Skin {
+                id,
+                name: name.to_string(),
+                creator: creator.to_string(),
+                is_protected: false,
+                instantiation_info: String::new(),
+                hash: format!("demo_hash_{i}"),
+                delete_pending: false,
+                files,
+            }
+        })
+        .collect()
+}
+
 impl AppState {
+    pub fn enable_demo_mode(&mut self) {
+        self.demo_mode = true;
+        if self.real_installed_skins.is_empty() && !self.installed_skins.is_empty() {
+            self.real_installed_skins = self.installed_skins.clone();
+        }
+
+        if !self.real_installed_skins.is_empty() {
+            self.installed_skins = apply_demo_names(&self.real_installed_skins);
+        } else {
+            self.installed_skins = generate_mock_demo_skins();
+            if self.installed_skins.len() >= 3 {
+                self.selected_base_skin_id = Some(self.installed_skins[0].id.clone());
+                self.slot_sources.insert(
+                    ComponentSlot::Cursor,
+                    SlotSource::Donor(self.installed_skins[1].id.clone()),
+                );
+                self.slot_sources.insert(
+                    ComponentSlot::CursorTrail,
+                    SlotSource::Donor(self.installed_skins[1].id.clone()),
+                );
+                self.slot_sources.insert(
+                    ComponentSlot::Hitnormal,
+                    SlotSource::Donor(self.installed_skins[2].id.clone()),
+                );
+                self.slot_sources.insert(
+                    ComponentSlot::Hitclap,
+                    SlotSource::Donor(self.installed_skins[2].id.clone()),
+                );
+            }
+        }
+
+        self.new_skin_name = "WhiteCat + Yugen (Mixed)".to_string();
+        self.new_skin_creator = "SkinForge".to_string();
+    }
+
+    pub fn disable_demo_mode(&mut self) {
+        self.demo_mode = false;
+        if !self.real_installed_skins.is_empty() {
+            self.installed_skins = self.real_installed_skins.clone();
+            if let Some(base_id) = &self.selected_base_skin_id {
+                if let Some(base) = self.installed_skins.iter().find(|s| &s.id == base_id) {
+                    self.new_skin_name = format!("{} + Mixed", base.name);
+                }
+            }
+        } else {
+            self.installed_skins.clear();
+            self.selected_base_skin_id = None;
+            self.slot_sources.clear();
+        }
+    }
+
     pub fn record_cursor_pos(&mut self, pos: egui::Pos2, time: f64) {
         self.cursor_trail_history.retain(|(_, t)| time - *t <= 0.25);
         if let Some((last_pos, _)) = self.cursor_trail_history.last() {
@@ -98,13 +210,30 @@ impl AppState {
     /// Loads skin list from database, filtering out built-in protected skins
     /// (Protected == true) and empty skins with zero files.
     pub fn set_installed_skins(&mut self, skins: Vec<Skin>) {
-        self.installed_skins = skins
+        let filtered: Vec<Skin> = skins
             .into_iter()
             .filter(|s| !s.is_protected && !s.files.is_empty())
             .collect();
 
-        if self.selected_base_skin_id.is_none() && !self.installed_skins.is_empty() {
-            self.select_base_skin(&self.installed_skins[0].id.clone());
+        self.real_installed_skins = filtered.clone();
+        if self.demo_mode {
+            if !filtered.is_empty() {
+                self.installed_skins = apply_demo_names(&filtered);
+            } else if self.installed_skins.is_empty() {
+                self.installed_skins = generate_mock_demo_skins();
+            }
+        } else {
+            self.installed_skins = filtered;
+        }
+
+        if !self.installed_skins.is_empty() {
+            let base_valid = self
+                .selected_base_skin_id
+                .as_ref()
+                .is_some_and(|id| self.installed_skins.iter().any(|s| &s.id == id));
+            if !base_valid {
+                self.select_base_skin(&self.installed_skins[0].id.clone());
+            }
         }
     }
 
@@ -291,5 +420,42 @@ mod tests {
 
         state.trigger_hit(2.5);
         assert_eq!(state.last_hit_time, Some(2.5));
+    }
+
+    #[test]
+    fn demo_mode_masks_and_restores_names() {
+        let mut state = AppState::default();
+        let s1 = make_skin("1", "UglyCustomName_xXx_1337", false, &["cursor.png"]);
+        let s2 = make_skin("2", "Another_Weird_Folder_Name", false, &["hitcircle.png"]);
+        state.set_installed_skins(vec![s1, s2]);
+
+        assert_eq!(state.installed_skins[0].name, "UglyCustomName_xXx_1337");
+        assert_eq!(state.installed_skins[1].name, "Another_Weird_Folder_Name");
+        assert!(!state.demo_mode);
+
+        state.enable_demo_mode();
+        assert!(state.demo_mode);
+        assert_eq!(state.installed_skins[0].name, "WhiteCat 2.1 (CK)");
+        assert_eq!(state.installed_skins[1].name, "Yugen");
+        assert_eq!(state.new_skin_name, "WhiteCat + Yugen (Mixed)");
+
+        state.disable_demo_mode();
+        assert!(!state.demo_mode);
+        assert_eq!(state.installed_skins[0].name, "UglyCustomName_xXx_1337");
+        assert_eq!(state.installed_skins[1].name, "Another_Weird_Folder_Name");
+    }
+
+    #[test]
+    fn demo_mode_mock_fallback_when_empty() {
+        let mut state = AppState::default();
+        state.enable_demo_mode();
+        assert!(state.demo_mode);
+        assert!(!state.installed_skins.is_empty());
+        assert_eq!(state.installed_skins[0].name, "WhiteCat 2.1 (CK)");
+        assert!(state.selected_base_skin_id.is_some());
+
+        state.disable_demo_mode();
+        assert!(!state.demo_mode);
+        assert!(state.installed_skins.is_empty());
     }
 }

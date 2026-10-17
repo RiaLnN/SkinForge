@@ -29,10 +29,21 @@ fn main() -> eframe::Result<()> {
     let _ = worker_tx.send(worker::WorkerTask::CheckProcess);
     let _ = worker_tx.send(worker::WorkerTask::LoadSkins);
 
+    let args: Vec<String> = std::env::args().collect();
+    let demo_mode = args.iter().any(|arg| arg == "--demo" || arg == "-d")
+        || std::env::var("SKINFORGE_DEMO").is_ok();
+
     let app_worker_tx = worker_tx.clone();
     eframe::run_native(
         "SkinForge",
         native_options,
-        Box::new(move |cc| Ok(Box::new(app::MixerApp::new(cc, app_worker_tx, event_rx)))),
+        Box::new(move |cc| {
+            Ok(Box::new(app::MixerApp::new(
+                cc,
+                app_worker_tx,
+                event_rx,
+                demo_mode,
+            )))
+        }),
     )
 }

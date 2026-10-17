@@ -30,13 +30,19 @@ impl MixerApp {
         cc: &eframe::CreationContext<'_>,
         worker_tx: Sender<WorkerTask>,
         rx: Receiver<AppEvent>,
+        demo_mode: bool,
     ) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
+        let mut state = AppState::default();
+        if demo_mode {
+            state.enable_demo_mode();
+        }
+
         Self {
-            state: AppState::default(),
+            state,
             textures: TextureCache::new(),
             audio: AudioPlayer::new(),
             worker_tx,
@@ -99,6 +105,27 @@ impl eframe::App for MixerApp {
                 {
                     self.state.is_working = true;
                     let _ = self.worker_tx.send(WorkerTask::LoadSkins);
+                }
+
+                ui.separator();
+
+                let demo_label = if self.state.demo_mode {
+                    format!("{} Clean Names: ON", egui_phosphor::regular::SPARKLE)
+                } else {
+                    format!("{} Clean Names: OFF", egui_phosphor::regular::SPARKLE)
+                };
+                if ui
+                    .selectable_label(self.state.demo_mode, demo_label)
+                    .on_hover_text(
+                        "Mask skin names with clean canonical names for screenshots/demos",
+                    )
+                    .clicked()
+                {
+                    if self.state.demo_mode {
+                        self.state.disable_demo_mode();
+                    } else {
+                        self.state.enable_demo_mode();
+                    }
                 }
 
                 if self.state.is_working {
