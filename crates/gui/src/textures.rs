@@ -135,6 +135,43 @@ fn find_file_hash_for_slot(
     slot: ComponentSlot,
 ) -> Option<&str> {
     let target_name = slot.primary_filename();
+
+    if slot.is_audio() {
+        // 1. Direct primary filename match (e.g. normal-hitnormal.wav, applause.wav)
+        if let Some(f) = skin
+            .files
+            .iter()
+            .find(|f| f.filename.eq_ignore_ascii_case(target_name))
+        {
+            return Some(&f.file_hash);
+        }
+
+        // 2. Matching with alternative audio extensions (.mp3, .ogg)
+        if let Some((stem, _)) = target_name.rsplit_once('.') {
+            for ext in &["wav", "mp3", "ogg"] {
+                let candidate = format!("{stem}.{ext}");
+                if let Some(f) = skin
+                    .files
+                    .iter()
+                    .find(|f| f.filename.eq_ignore_ascii_case(&candidate))
+                {
+                    return Some(&f.file_hash);
+                }
+            }
+        }
+
+        // 3. Fallback to any audio file matching the slot
+        return skin
+            .files
+            .iter()
+            .find(|f| {
+                let lower = f.filename.to_ascii_lowercase();
+                (lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg"))
+                    && slot.matches_filename(&f.filename)
+            })
+            .map(|f| f.file_hash.as_str());
+    }
+
     let name_no_ext = target_name.strip_suffix(".png").unwrap_or(target_name);
     let target_2x = format!("{name_no_ext}@2x.png");
 
@@ -159,4 +196,50 @@ fn find_file_hash_for_slot(
         .iter()
         .find(|f| slot.matches_filename(&f.filename))
         .map(|f| f.file_hash.as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use skinforge_core::bridge::{Skin, SkinFile};
+
+    #[test]
+    fn audio_lookup_finds_mp3_or_matching_prefix() {
+        let skin = Skin {
+            id: "skin1".to_string(),
+            name: "Test Skin".to_string(),
+            creator: "Tester".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: "skin_hash".to_string(),
+            delete_pending: false,
+            files: vec![
+                SkinFile {
+                    filename: "applause.mp3".to_string(),
+                    file_hash: "hash_applause".to_string(),
+                },
+                SkinFile {
+                    filename: "section-pass.wav".to_string(),
+                    file_hash: "hash_secpass".to_string(),
+                },
+                SkinFile {
+                    filename: "soft-hitnormal.wav".to_string(),
+                    file_hash: "hash_softhit".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            find_file_hash_for_slot(&skin, ComponentSlot::Applause),
+            Some("hash_applause")
+        );
+        assert_eq!(
+            find_file_hash_for_slot(&skin, ComponentSlot::SectionPass),
+            Some("hash_secpass")
+        );
+        assert_eq!(
+            find_file_hash_for_slot(&skin, ComponentSlot::Hitnormal),
+            Some("hash_softhit")
+        );
+    }
 }
