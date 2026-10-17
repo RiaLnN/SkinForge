@@ -7,3 +7,8 @@ docs/superpowers/
 cookies.txt
 *.bak
 *.bak.*
+# Temporary recording & demo scripts
+record_demo.py
+scripts/
+*.mp4
+temp_recording/

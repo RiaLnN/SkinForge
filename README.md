@@ -2,172 +2,146 @@
 
 # SkinForge
 
-**Mix and customize osu!lazer skins with real-time preview and zero-copy performance.**
+**Mix osu!lazer skins in a few clicks: take the cursor from one skin, hitsounds from another, and build a new skin with a live preview.**
 
 [![Latest release](https://img.shields.io/github/v/release/RiaLnN/SkinForge?style=flat-square)](https://github.com/RiaLnN/SkinForge/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/RiaLnN/SkinForge/total?style=flat-square)](https://github.com/RiaLnN/SkinForge/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey?style=flat-square)
 
-<img src="docs/gui_preview.png" alt="SkinForge GUI" width="800">
-    
+<img src="docs/demo.gif" alt="SkinForge in action: mixing two skins and building a new one" width="800">
+
 </div>
 
 ---
 
-## What is SkinForge?
+## Why SkinForge?
 
-In **osu!lazer**, skins are stored inside a Realm database (`client.realm`) with resources tracked in content-addressed storage (`files/`). Unlike osu!stable where skins are plain folders on disk, mixing skins in lazer previously required cumbersome manual `.osk` export/import cycles or risking database corruption.
+osu!stable has OsuMixer for combining skins, but **osu!lazer has nothing like it**. In lazer, skins live inside a Realm database (`client.realm`), so mixing them used to mean exporting and re-importing `.osk` files by hand.
 
-**SkinForge** solves this natively:
-- **Direct Database Integration**: Reads your installed skins library instantly via a high-performance C# Realm Dynamic API bridge.
-- **Zero-Copy Asset Mapping**: New mixed skins reference existing file hashes in lazer's storage. No disk space duplication.
-- **Interactive Live Preview**: 60fps canvas displaying animated approach circles, hitcircle combo colour tinting, hitcircle overlays, and responsive cursor movement with trails.
-- **In-App Hitsound Audition**: Play hitnormal, whistle, finish, clap, and combobreak sounds on demand before building.
-- **Fail-Safe Database Protection**: Built-in process detection prevents concurrent writes while osu! is open. Automatic timestamped backups (`client.realm.bak-<timestamp>`) ensure you can always restore your database.
+SkinForge works with that database directly: pick a base skin, choose donors for individual elements, check the result in the preview, and click **Build**. The new skin shows up in lazer's settings right away.
 
----
+## Features
+
+- **Mix any element.** Swap the cursor, trail, hitcircle, hitsounds, interface elements and combo colours from different skins. A **Batch replace** dropdown swaps a whole category in one click.
+- **Live preview.** A 60 fps canvas shows approach circles, combo colour tinting, hitcircle overlays and cursor movement with trails.
+- **Hitsound audition.** Play hitnormal, whistle, finish, clap and combobreak before building.
+- **Safe by design.** SkinForge refuses to write while osu! is running and makes a timestamped backup of `client.realm` before every change.
+- **No wasted disk space.** New skins reference files lazer already stores, so nothing is copied.
+- **CLI included** for scripting and inspection.
 
 ## Download
 
-1. Visit the [**Releases page**](https://github.com/RiaLnN/SkinForge/releases/latest).
-2. Download the release archive for your operating system:
+1. Open the [**Releases page**](https://github.com/RiaLnN/SkinForge/releases/latest).
+2. Download the archive for your system:
 
-| Platform | Archive | Contents |
-| --- | --- | --- |
-| Windows (64-bit) | `skinforge-vX.Y.Z-windows-x64.zip` | GUI app, CLI tool, Realm bridge, docs |
-| Linux (64-bit) | `skinforge-vX.Y.Z-linux-x64.tar.gz` | GUI app, CLI tool, Realm bridge, docs |
+| Platform | Archive |
+| --- | --- |
+| Windows (64-bit) | `skinforge-vX.Y.Z-windows-x64.zip` |
+| Linux (64-bit) | `skinforge-vX.Y.Z-linux-x64.tar.gz` |
 
-3. Extract the archive anywhere. **Keep all files together**, particularly the `bridge/` folder which is required at runtime.
+3. Extract it anywhere. **Keep all files together**, especially the `bridge/` folder: SkinForge needs it at runtime.
 
-No .NET SDK or Rust toolchain installation is needed for release builds.
+No .NET SDK or Rust toolchain is required.
 
-> **Windows note:** SmartScreen may display an unrecognized application prompt because binaries are not digitally code-signed. Click **More info → Run anyway** if you downloaded from the official Releases page.
+> **Windows:** SmartScreen may warn about an unrecognized app because the binaries are not code-signed. If you downloaded from the official Releases page, click **More info → Run anyway**.
 
----
+## Quick start
 
-## Quick Start (GUI)
-
-1. **Close osu!lazer** so `client.realm` is unlocked.
-2. Launch `skinforge` (`skinforge.exe` on Windows).
-3. In the left panel, select your **Base skin** (the foundation for all default assets).
+1. **Close osu!lazer** completely, so `client.realm` is unlocked.
+2. Run `skinforge` (`skinforge.exe` on Windows).
+3. Choose a **Base skin** on the left.
 4. Enter a name and author for the new skin.
-5. In the central tabs (**Cursor**, **Gameplay**, **Audio**, **Interface**, **Colors**):
-   - Choose donors for individual slots (e.g. cursor, trail, hitcircle, hitnormal).
-   - Use the **Batch replace** dropdown to swap an entire category from one donor with 1 click.
-   - Disable optional elements (such as `cursormiddle` or `combobreak`) by choosing `Disable / Remove (None)`.
-   - Customize combo colours in the **Colors** tab.
-6. Verify your mix in the right panel:
-   - Move your mouse over the canvas to test cursor behavior.
-   - Click the audio buttons to test hitsound replacements.
+5. In the tabs (**Cursor**, **Gameplay**, **Audio**, **Interface**, **Colors**), pick a donor skin for each element you want to change. Choose `Disable / Remove (None)` to drop optional elements such as `cursormiddle` or `combobreak`.
+6. Check the result in the right panel: move the mouse over the canvas and click the audio buttons.
 7. Click **Build skin into osu!lazer**.
-8. Launch osu!lazer — your new skin is immediately selectable in settings!
+8. Start osu!lazer and select your new skin in settings.
 
----
+## Compatibility
 
-## Command-Line Usage
+| | Status |
+| --- | --- |
+| osu!lazer | Tested with `2026.1005.0-lazer` (Realm database schema v52) |
+| Realm .NET SDK | `20.1.0` (Dynamic API) |
+| Windows 10/11 (x64) | Supported |
+| Linux (x64, including Flatpak) | Supported |
+| macOS | Not supported |
 
-SkinForge also includes `skinforge-cli` for scriptable inspections and headless workflows:
+SkinForge connects to osu!lazer's database using Realm's Dynamic API, inspecting and patching the schema without compiling against lazer's internal classes. This ensures compatibility across updates as long as the core `Skin` and `File` models remain structurally compatible. If an osu!lazer update ever breaks SkinForge, please [open an issue](https://github.com/RiaLnN/SkinForge/issues) with your lazer version.
+
+## Is it safe?
+
+SkinForge is an **unofficial** tool that edits lazer's database, so it takes precautions:
+
+1. It checks that osu! is closed before any write.
+2. It copies `client.realm` (plus `.lock`, `.note` and `.management` if present) to `client.realm.bak-<timestamp>` before changing anything.
+3. Changes are applied as an atomic Realm transaction.
+
+These steps make data loss unlikely, but no tool can promise it. Keep your own backup of lazer's data folder if your skins matter to you. To restore, close osu! and copy the backup over `client.realm`.
+
+## Known limitations & roadmap
+
+<!-- TODO: edit to match what you actually plan. -->
+
+- [ ] macOS support
+- [ ] Importing `.osk` files as donors from the GUI
+- [ ] Code-signed Windows binaries
+
+Ideas and votes are welcome in [Issues](https://github.com/RiaLnN/SkinForge/issues).
+
+## Command line
+
+`skinforge-cli` is included for scripting and inspection:
 
 ```bash
-# Check if osu! is running
-skinforge-cli check-running
-
-# Find and print osu!lazer paths (root, database, storage)
-skinforge-cli find-lazer
-
-# Dump installed skins metadata to JSON
-skinforge-cli dump-skins \
+skinforge-cli check-running                 # is osu! running?
+skinforge-cli find-lazer                    # print lazer's root, database and storage paths
+skinforge-cli dump-skins \                  # dump installed skins as JSON
   --bridge-binary ./bridge/realm-bridge \
   --db ~/.local/share/osu/client.realm
-
-# Inspect components of a donor skin directory
-skinforge-cli inspect-donor /path/to/donor-skin
+skinforge-cli inspect-donor /path/to/skin   # list components of a donor skin folder
 ```
 
----
+## Troubleshooting
 
-## FAQ & Troubleshooting
+**"osu! is running" warning won't go away.**
+Make sure lazer is fully closed, including background processes and Flatpak wrappers. SkinForge rechecks every 2 seconds and enables the Build button as soon as the game exits.
 
-**Will SkinForge corrupt my osu!lazer library?**  
-No. SkinForge protects your library with multiple safety layers:
-1. It validates that osu! is closed before performing write operations.
-2. It makes a full timestamped copy of `client.realm` (including `.lock`, `.note`, and `.management` if present) before executing any patch.
-3. Patch transactions in Realm are fully atomic.
+<details>
+<summary><b>The Linux GUI does not start</b></summary>
 
-**How does zero-copy work?**  
-osu!lazer identifies files by SHA-256 hash in its `files/` storage. When you mix a cursor from Skin A into Skin B, SkinForge simply adds a pointer to the existing hash in your new skin manifest. No additional storage space is consumed.
-
-**osu! is running (locked) warning won't go away.**  
-Make sure osu!lazer is completely closed, including any background processes or flatpak wrappers. SkinForge checks process status every 2 seconds and will automatically enable the build button once the game exits.
-
-**The Linux GUI does not start.**  
-Ensure standard GTK 3 and graphics development libraries are present on your system:
-```bash
-sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libgtk-3-dev
-```
-
----
-
-## For Developers
-
-### Architecture
-
-```text
-osu!lazer client.realm ──(realm-bridge, C# .NET 8)──> JSON metadata
-                                                            │
-                                                     (skinforge-core, Rust)
-                                                            │
-                                            ┌───────────────┴───────────────┐
-                                            ▼                               ▼
-                                   (skinforge desktop GUI)        (skinforge-cli)
-                                   egui + live canvas             headless CLI
-```
-
-### Repository Structure
-
-```text
-Osu-mixer-lazer/
-├── crates/
-│   ├── core/                   # Rust core library & CLI (paths, process guard, mixer, parser)
-│   └── gui/                    # Desktop GUI (egui + eframe, live canvas, audio preview)
-├── realm-bridge/               # High-performance C# Realm Dynamic API bridge (.NET 8)
-├── packaging/                  # Bundled release files & instructions
-├── .github/workflows/          # CI and multi-platform release workflows
-├── Cargo.toml                  # Cargo workspace definition
-└── LICENSE                     # MIT License
-```
-
-### Building from Source
-
-Prerequisites:
-- [Rust](https://rustup.rs/) (1.80+ or latest stable)
-- [.NET 8 SDK](https://dotnet.microsoft.com/download)
+Install the required GTK 3 and graphics libraries:
 
 ```bash
-# 1. Build the C# Realm bridge
-dotnet build realm-bridge/realm-bridge.csproj -c Release
-
-# 2. Build the Rust workspace
-cargo build --release --workspace
+sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+  libxkbcommon-dev libssl-dev libasound2-dev libgtk-3-dev
 ```
 
-Run directly from source:
+</details>
+
+<details>
+<summary><b>How does it avoid copying files?</b></summary>
+
+lazer stores files by SHA-256 hash in its `files/` folder. When you take a cursor from skin A into skin B, SkinForge adds a reference to the existing hash in the new skin instead of duplicating the file.
+
+</details>
+
+## For developers
+
+Architecture and repository layout are described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Prerequisites: [Rust](https://rustup.rs/) (1.80+) and the [.NET 8 SDK](https://dotnet.microsoft.com/download).
+
 ```bash
-# Run desktop GUI
-cargo run --release -p skinforge-gui
+dotnet build realm-bridge/realm-bridge.csproj -c Release   # C# Realm bridge
+cargo build --release --workspace                          # Rust workspace
 
-# Run CLI
-cargo run --release -p skinforge-core -- --help
+cargo run --release -p skinforge-gui                       # run the GUI
+cargo run --release -p skinforge-core -- --help            # run the CLI
 ```
-
----
 
 ## Contributing
 
-Bug reports, suggestions, and pull requests are warmly welcome! Please submit an issue on GitHub describing your operating system, version, and steps to reproduce.
-
----
+Bug reports, ideas and pull requests are welcome. When reporting a bug, please include your OS, osu!lazer version, SkinForge version and steps to reproduce.
 
 ## License
 
