@@ -172,8 +172,8 @@ impl ComponentSlot {
             Self::Hitfinish => "normal-hitfinish.wav",
             Self::Hitclap => "normal-hitclap.wav",
             Self::Combobreak => "combobreak.wav",
-            Self::SectionPass => "section-pass.png",
-            Self::SectionFail => "section-fail.png",
+            Self::SectionPass => "sectionpass.wav",
+            Self::SectionFail => "sectionfail.wav",
             Self::ScoreNumbers => "score-0.png",
             Self::PauseMenu => "pause-overlay.png",
             Self::HudLayout => "skin.json",
@@ -184,6 +184,19 @@ impl ComponentSlot {
             Self::FailSound => "failsound.wav",
             Self::PauseLoop => "pause-loop.wav",
         }
+    }
+
+    pub fn is_audio(&self) -> bool {
+        self.category() == ComponentCategory::Audio
+            || matches!(
+                self,
+                Self::MenuClick
+                    | Self::MenuHit
+                    | Self::MenuBack
+                    | Self::Applause
+                    | Self::FailSound
+                    | Self::PauseLoop
+            )
     }
 
     pub fn can_be_none(&self) -> bool {
@@ -228,8 +241,8 @@ impl ComponentSlot {
             Self::Hitfinish => k == "hitfinish",
             Self::Hitclap => k == "hitclap",
             Self::Combobreak => k == "combobreak",
-            Self::SectionPass => k == "section-pass",
-            Self::SectionFail => k == "section-fail",
+            Self::SectionPass => k == "section-pass" || k == "sectionpass",
+            Self::SectionFail => k == "section-fail" || k == "sectionfail",
             Self::ScoreNumbers => k.starts_with("score-"),
             Self::PauseMenu => k.starts_with("pause-"),
             Self::HudLayout => k == "skin",
@@ -393,6 +406,19 @@ pub fn classify(filename: &str) -> ComponentInfo {
         return ComponentInfo {
             filename: filename.to_string(),
             category: ComponentCategory::Gameplay,
+            component_key: base_without_variation.to_string(),
+        };
+    }
+
+    if AUDIO_EXTENSIONS.contains(&extension)
+        && (base_without_variation == "section-pass"
+            || base_without_variation == "sectionpass"
+            || base_without_variation == "section-fail"
+            || base_without_variation == "sectionfail")
+    {
+        return ComponentInfo {
+            filename: filename.to_string(),
+            category: ComponentCategory::Audio,
             component_key: base_without_variation.to_string(),
         };
     }
@@ -570,5 +596,39 @@ mod tests {
         assert!(ComponentSlot::Combobreak.supports_single_file_import());
         assert!(!ComponentSlot::ScoreNumbers.supports_single_file_import());
         assert!(!ComponentSlot::PauseMenu.supports_single_file_import());
+    }
+
+    #[test]
+    fn classifies_section_pass_and_fail_audio_and_slot_is_audio() {
+        let pass_wav = classify("sectionpass.wav");
+        assert_eq!(pass_wav.category, ComponentCategory::Audio);
+        assert!(ComponentSlot::SectionPass.matches(&pass_wav));
+
+        let pass_hyphen = classify("section-pass.wav");
+        assert_eq!(pass_hyphen.category, ComponentCategory::Audio);
+        assert!(ComponentSlot::SectionPass.matches(&pass_hyphen));
+
+        let fail_wav = classify("sectionfail.wav");
+        assert_eq!(fail_wav.category, ComponentCategory::Audio);
+        assert!(ComponentSlot::SectionFail.matches(&fail_wav));
+
+        let fail_hyphen = classify("section-fail.wav");
+        assert_eq!(fail_hyphen.category, ComponentCategory::Audio);
+        assert!(ComponentSlot::SectionFail.matches(&fail_hyphen));
+
+        // Images remain Interface
+        let pass_png = classify("section-pass.png");
+        assert_eq!(pass_png.category, ComponentCategory::Interface);
+
+        // is_audio check
+        assert!(ComponentSlot::Hitnormal.is_audio());
+        assert!(ComponentSlot::Combobreak.is_audio());
+        assert!(ComponentSlot::SectionPass.is_audio());
+        assert!(ComponentSlot::SectionFail.is_audio());
+        assert!(ComponentSlot::MenuClick.is_audio());
+        assert!(ComponentSlot::Applause.is_audio());
+        assert!(!ComponentSlot::Cursor.is_audio());
+        assert!(!ComponentSlot::Hitcircle.is_audio());
+        assert!(!ComponentSlot::HudLayout.is_audio());
     }
 }

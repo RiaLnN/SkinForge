@@ -70,7 +70,12 @@ mod tests {
     }
 
     #[test]
-    fn ensure_not_running_ok_when_absent() {
-        assert!(ensure_game_not_running().is_ok());
+    fn ensure_not_running_matches_detection() {
+        let running = find_running_game_processes();
+        if running.is_empty() {
+            assert!(ensure_game_not_running().is_ok());
+        } else {
+            assert!(ensure_game_not_running().is_err());
+        }
     }
 }
