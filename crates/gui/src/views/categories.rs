@@ -2,10 +2,12 @@ use eframe::egui;
 use skinforge_core::categorize::{ComponentCategory, ComponentSlot};
 use skinforge_core::mixer::SlotSource;
 
+use crate::audio::AudioPlayer;
 use crate::state::{ActiveTab, AppState};
+use crate::textures::resolve_slot_file_path;
 use crate::views::colors::render_colors;
 
-pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState) {
+pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState, audio: &AudioPlayer) {
     ui.vertical(|ui| {
         // Category tabs
         ui.horizontal(|ui| {
@@ -52,7 +54,7 @@ pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState) {
 
         // Active tab contents
         match state.active_tab {
-            ActiveTab::Category(cat) => render_category_content(ui, state, cat),
+            ActiveTab::Category(cat) => render_category_content(ui, state, audio, cat),
             ActiveTab::Colors => render_colors(ui, state),
         }
     });
@@ -72,7 +74,12 @@ fn render_tab_button(
     }
 }
 
-fn render_category_content(ui: &mut egui::Ui, state: &mut AppState, category: ComponentCategory) {
+fn render_category_content(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    audio: &AudioPlayer,
+    category: ComponentCategory,
+) {
     // 1. Batch action toolbar
     ui.horizontal(|ui| {
         ui.label(format!(
@@ -122,7 +129,7 @@ fn render_category_content(ui: &mut egui::Ui, state: &mut AppState, category: Co
         .id_salt(format!("slots_scroll_{:?}", category))
         .show(ui, |ui| {
             for slot in slots_in_cat {
-                render_slot_row(ui, state, slot);
+                render_slot_row(ui, state, audio, slot);
             }
 
             // Accordion for Cursor category
@@ -311,7 +318,12 @@ fn render_gameplay_advanced(ui: &mut egui::Ui, state: &mut AppState) {
     }
 }
 
-fn render_slot_row(ui: &mut egui::Ui, state: &mut AppState, slot: ComponentSlot) {
+fn render_slot_row(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    audio: &AudioPlayer,
+    slot: ComponentSlot,
+) {
     let current_source = state
         .slot_sources
         .get(&slot)
@@ -371,17 +383,7 @@ fn render_slot_row(ui: &mut egui::Ui, state: &mut AppState, slot: ComponentSlot)
                         let mut dialog = rfd::FileDialog::new();
                         if slot == ComponentSlot::HudLayout {
                             dialog = dialog.add_filter("osu!lazer HUD Layout", &["json"]);
-                        } else if slot.category() == ComponentCategory::Audio
-                            || matches!(
-                                slot,
-                                ComponentSlot::MenuClick
-                                    | ComponentSlot::MenuHit
-                                    | ComponentSlot::MenuBack
-                                    | ComponentSlot::Applause
-                                    | ComponentSlot::FailSound
-                                    | ComponentSlot::PauseLoop
-                            )
-                        {
+                        } else if slot.is_audio() {
                             dialog = dialog.add_filter("Audio files", &["wav", "ogg", "mp3"]);
                         } else {
                             dialog = dialog.add_filter("Image files", &["png", "jpg", "jpeg"]);
@@ -391,6 +393,22 @@ fn render_slot_row(ui: &mut egui::Ui, state: &mut AppState, slot: ComponentSlot)
                             new_custom_file = Some(path);
                         }
                     }
+                }
+
+                // Audio preview button (for any audio or UI sound slot)
+                if slot.is_audio() {
+                    let is_none = matches!(current_source, SlotSource::None);
+                    ui.add_enabled_ui(!is_none, |ui| {
+                        if ui
+                            .button(format!("{} Play", egui_phosphor::regular::PLAY))
+                            .on_hover_text("Preview this sound")
+                            .clicked()
+                        {
+                            if let Some(path) = resolve_slot_file_path(state, slot) {
+                                audio.play_from_file(&path);
+                            }
+                        }
+                    });
                 }
 
                 // Status badge

@@ -158,7 +158,7 @@ impl eframe::App for MixerApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            categories::render_categories(ui, &mut self.state);
+            categories::render_categories(ui, &mut self.state, &self.audio);
         });
     }
 }
