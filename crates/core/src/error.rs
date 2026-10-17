@@ -36,6 +36,9 @@ pub enum CoreError {
 
     #[error("realm-bridge exited without output in stdout")]
     BridgeNoOutput,
+
+    #[error("ZIP packaging error: {0}")]
+    Zip(#[from] zip::result::ZipError),
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;

@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use crate::audio::AudioPlayer;
 use crate::state::AppState;
 use crate::textures::TextureCache;
-use crate::views::{categories, preview, sidebar};
+use crate::views::{build_dialog, categories, preview, sidebar};
 use crate::worker::WorkerTask;
 
 pub enum AppEvent {
@@ -156,36 +156,15 @@ impl eframe::App for MixerApp {
             .show(ctx, |ui| {
                 let action =
                     preview::render_preview(ui, &mut self.state, &mut self.textures, &self.audio);
-                if action == preview::PreviewAction::ApplyMix {
-                    if let (Some(files_dir), Some(client_realm_path)) = (
-                        self.state.files_dir.clone(),
-                        self.state.client_realm_path.clone(),
-                    ) {
-                        if let Some(plan) = self.state.build_mix_plan(None) {
-                            self.state.is_working = true;
-                            self.state.status_message =
-                                Some(("Building and saving skin to Realm...".to_string(), false));
-                            let _ = self.worker_tx.send(WorkerTask::ApplyMix(Box::new(
-                                crate::worker::ApplyMixTask {
-                                    plan,
-                                    combo_colours: self.state.combo_colours.clone(),
-                                    installed_skins: self.state.installed_skins.clone(),
-                                    files_dir,
-                                    client_realm_path,
-                                    set_active_on_build: self.state.set_active_on_build,
-                                    extended_ini: self.state.extended_ini.clone(),
-                                },
-                            )));
-                        }
-                    } else {
-                        self.state.status_message =
-                            Some(("osu!lazer data directory not found".to_string(), true));
-                    }
+                if action == preview::PreviewAction::OpenBuildDialog {
+                    self.state.show_build_dialog = true;
                 }
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             categories::render_categories(ui, &mut self.state, &self.audio);
         });
+
+        build_dialog::render_build_dialog(ctx, &mut self.state, &self.worker_tx);
     }
 }

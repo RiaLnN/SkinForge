@@ -388,6 +388,202 @@ pub fn resolve_manifest_mix_with_storage(
     })
 }
 
+/// Exports the mixed skin as a standard `.osk` zip archive.
+///
+/// Gathers all component files according to the `ManifestMixPlan`:
+/// - Base skin files as default foundation
+/// - Replacements from donor skins
+/// - Custom imported files from disk
+/// - Customized or overridden `skin.ini`
+/// - Optional HUD layout (`skin.json`)
+///
+/// Writes a compressed `.osk` archive to `output_osk_path`.
+pub fn export_osk(
+    files_dir: &Path,
+    installed_skins: &[Skin],
+    plan: &ManifestMixPlan,
+    custom_skin_ini: Option<&str>,
+    output_osk_path: &Path,
+) -> CoreResult<()> {
+    use std::io::Write;
+
+    let base_skin = installed_skins
+        .iter()
+        .find(|s| s.id == plan.base_skin_id)
+        .ok_or_else(|| {
+            CoreError::BackupFailed(format!(
+                "Base skin with ID '{}' not found",
+                plan.base_skin_id
+            ))
+        })?;
+
+    // Map: target filename in zip -> source PathBuf on disk
+    let mut file_map: HashMap<String, PathBuf> = HashMap::new();
+
+    // 1. Initialize with base skin files
+    for file in &base_skin.files {
+        // Skip skin.ini if custom content is supplied directly
+        if file.filename.eq_ignore_ascii_case("skin.ini") && custom_skin_ini.is_some() {
+            continue;
+        }
+        let disk_path = crate::paths::hashed_storage_path(files_dir, &file.file_hash);
+        file_map.insert(file.filename.clone(), disk_path);
+    }
+
+    // 2. Apply slot assignments
+    for assignment in &plan.slots {
+        let slot = assignment.slot;
+
+        if slot == ComponentSlot::HudLayout {
+            match &assignment.source {
+                SlotSource::Base => {}
+                SlotSource::None => {
+                    file_map.retain(|k, _| !k.eq_ignore_ascii_case("skin.json"));
+                }
+                SlotSource::Donor(donor_id) => {
+                    if let Some(donor_skin) = installed_skins.iter().find(|s| &s.id == donor_id) {
+                        if let Some(donor_hud) = donor_skin
+                            .files
+                            .iter()
+                            .find(|f| f.filename.eq_ignore_ascii_case("skin.json"))
+                        {
+                            let disk_path =
+                                crate::paths::hashed_storage_path(files_dir, &donor_hud.file_hash);
+                            file_map.insert("skin.json".to_string(), disk_path);
+                        } else {
+                            file_map.retain(|k, _| !k.eq_ignore_ascii_case("skin.json"));
+                        }
+                    }
+                }
+                SlotSource::CustomFile(path) => {
+                    file_map.insert("skin.json".to_string(), path.clone());
+                }
+            }
+            continue;
+        }
+
+        match &assignment.source {
+            SlotSource::Base => {}
+            SlotSource::None => {
+                file_map.retain(|filename, _| {
+                    let info = categorize::classify(filename);
+                    !slot.matches(&info)
+                });
+            }
+            SlotSource::Donor(donor_id) => {
+                if let Some(donor_skin) = installed_skins.iter().find(|s| &s.id == donor_id) {
+                    let donor_files: Vec<_> = donor_skin
+                        .files
+                        .iter()
+                        .filter(|f| {
+                            let info = categorize::classify(&f.filename);
+                            slot.matches(&info)
+                        })
+                        .collect();
+
+                    if !donor_files.is_empty() {
+                        // Prune all current files for this slot first
+                        file_map.retain(|filename, _| {
+                            let info = categorize::classify(filename);
+                            !slot.matches(&info)
+                        });
+
+                        for df in donor_files {
+                            let disk_path =
+                                crate::paths::hashed_storage_path(files_dir, &df.file_hash);
+                            file_map.insert(df.filename.clone(), disk_path);
+                        }
+                    }
+                }
+            }
+            SlotSource::CustomFile(path) => {
+                // Prune any current files for this slot
+                file_map.retain(|filename, _| {
+                    let info = categorize::classify(filename);
+                    !slot.matches(&info)
+                });
+
+                let target_filename = target_filename_for_custom_file(slot, path);
+                file_map.insert(target_filename, path.clone());
+            }
+        }
+    }
+
+    // 3. Create parent directory if needed
+    if let Some(parent) = output_osk_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(crate::error::io_err(parent))?;
+        }
+    }
+
+    // 4. Create ZIP archive
+    let file =
+        std::fs::File::create(output_osk_path).map_err(crate::error::io_err(output_osk_path))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    // Write custom skin.ini if provided
+    if let Some(ini_text) = custom_skin_ini {
+        zip.start_file("skin.ini", options)?;
+        zip.write_all(ini_text.as_bytes())
+            .map_err(crate::error::io_err(output_osk_path))?;
+    }
+
+    // Write all collected files
+    for (filename, disk_path) in file_map {
+        if filename.eq_ignore_ascii_case("skin.ini") && custom_skin_ini.is_some() {
+            continue;
+        }
+
+        if disk_path.is_file() {
+            zip.start_file(&filename, options)?;
+            let mut file_content =
+                std::fs::File::open(&disk_path).map_err(crate::error::io_err(&disk_path))?;
+            std::io::copy(&mut file_content, &mut zip).map_err(crate::error::io_err(&disk_path))?;
+        }
+    }
+
+    zip.finish()?;
+
+    Ok(())
+}
+
+/// Opens an `.osk` skin file with the default system handler (launching it in osu!lazer).
+pub fn launch_osk_file(osk_path: &Path) -> CoreResult<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &osk_path.to_string_lossy()])
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let xdg_res = std::process::Command::new("xdg-open").arg(osk_path).spawn();
+
+        if xdg_res.is_err() {
+            std::process::Command::new("flatpak")
+                .args(["run", "--file-forwarding", "sh.ppy.osu", "@@"])
+                .arg(osk_path)
+                .arg("@@")
+                .spawn()
+                .map_err(crate::error::io_err(osk_path))?;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(osk_path)
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -806,5 +1002,115 @@ mod tests {
             .operations
             .iter()
             .any(|op| { op.op == "remove_file" && op.filename.as_deref() == Some("skin.json") }));
+    }
+
+    #[test]
+    fn export_osk_creates_valid_zip_with_all_elements() {
+        let root = temp_dir("export-osk");
+        let files_dir = root.join("files");
+        fs::create_dir_all(&files_dir).unwrap();
+
+        let base_cursor_bytes = b"base-cursor-png";
+        let base_cursor_stored =
+            storage::store_resource_bytes(&files_dir, base_cursor_bytes).unwrap();
+
+        let base_hitcircle_bytes = b"base-hitcircle-png";
+        let base_hitcircle_stored =
+            storage::store_resource_bytes(&files_dir, base_hitcircle_bytes).unwrap();
+
+        let base_skin = Skin {
+            id: "base_id".to_string(),
+            name: "BaseSkin".to_string(),
+            creator: "BaseCreator".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: "base_hash".to_string(),
+            delete_pending: false,
+            files: vec![
+                crate::bridge::SkinFile {
+                    filename: "cursor.png".to_string(),
+                    file_hash: base_cursor_stored.hash,
+                },
+                crate::bridge::SkinFile {
+                    filename: "hitcircle.png".to_string(),
+                    file_hash: base_hitcircle_stored.hash,
+                },
+            ],
+        };
+
+        let donor_cursor_bytes = b"donor-cursor-png";
+        let donor_cursor_stored =
+            storage::store_resource_bytes(&files_dir, donor_cursor_bytes).unwrap();
+
+        let donor_skin = Skin {
+            id: "donor_id".to_string(),
+            name: "DonorSkin".to_string(),
+            creator: "DonorCreator".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: "donor_hash".to_string(),
+            delete_pending: false,
+            files: vec![crate::bridge::SkinFile {
+                filename: "cursor.png".to_string(),
+                file_hash: donor_cursor_stored.hash,
+            }],
+        };
+
+        let plan = ManifestMixPlan {
+            base_skin_id: "base_id".to_string(),
+            new_skin_name: "ExportedSkin".to_string(),
+            new_skin_creator: "Mixer".to_string(),
+            slots: vec![
+                SlotAssignment {
+                    slot: ComponentSlot::Cursor,
+                    source: SlotSource::Donor("donor_id".to_string()),
+                },
+                SlotAssignment {
+                    slot: ComponentSlot::Hitcircle,
+                    source: SlotSource::Base,
+                },
+            ],
+            custom_skin_ini_hash: None,
+        };
+
+        let osk_path = root.join("ExportedSkin.osk");
+        let custom_ini = "[General]\nName: ExportedSkin\nAuthor: Mixer\n";
+
+        export_osk(
+            &files_dir,
+            &[base_skin, donor_skin],
+            &plan,
+            Some(custom_ini),
+            &osk_path,
+        )
+        .unwrap();
+
+        assert!(osk_path.exists());
+
+        let file = fs::File::open(&osk_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+
+        {
+            let mut ini_entry = archive.by_name("skin.ini").unwrap();
+            let mut ini_read = String::new();
+            std::io::Read::read_to_string(&mut ini_entry, &mut ini_read).unwrap();
+            assert_eq!(ini_read, custom_ini);
+        }
+
+        {
+            let mut cursor_entry = archive.by_name("cursor.png").unwrap();
+            let mut cursor_read = Vec::new();
+            std::io::Read::read_to_end(&mut cursor_entry, &mut cursor_read).unwrap();
+            assert_eq!(cursor_read, donor_cursor_bytes);
+        }
+
+        {
+            let mut hitcircle_entry = archive.by_name("hitcircle.png").unwrap();
+            let mut hitcircle_read = Vec::new();
+            std::io::Read::read_to_end(&mut hitcircle_entry, &mut hitcircle_read).unwrap();
+            assert_eq!(hitcircle_read, base_hitcircle_bytes);
+        }
+
+        fs::remove_dir_all(&root).ok();
     }
 }

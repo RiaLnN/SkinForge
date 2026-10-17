@@ -9,7 +9,7 @@ use crate::textures::{resolve_slot_file_path, TextureCache};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewAction {
     None,
-    ApplyMix,
+    OpenBuildDialog,
     PlaySlotSound(ComponentSlot),
 }
 
@@ -158,7 +158,7 @@ pub fn render_preview(
         ui.add_space(8.0);
 
         // 5. Build button
-        let can_apply = !state.is_working && !state.is_game_running && state.base_skin().is_some();
+        let can_apply = !state.is_working && state.base_skin().is_some();
 
         ui.add_enabled_ui(can_apply, |ui| {
             let button_text = format!(
@@ -169,17 +169,9 @@ pub fn render_preview(
                 .min_size(vec2(ui.available_width(), 42.0));
 
             if ui.add(btn).clicked() {
-                action = PreviewAction::ApplyMix;
+                action = PreviewAction::OpenBuildDialog;
             }
         });
-
-        if state.is_game_running {
-            ui.add_space(4.0);
-            ui.colored_label(
-                Color32::from_rgb(255, 100, 100),
-                "Close osu!lazer before writing to database",
-            );
-        }
     });
 
     if let PreviewAction::PlaySlotSound(slot) = action {

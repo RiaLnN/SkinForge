@@ -8,12 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::app::AppEvent;
+use crate::state::BuildMethod;
 
-pub struct ApplyMixTask {
+pub struct BuildSkinTask {
+    pub method: BuildMethod,
     pub plan: ManifestMixPlan,
     pub combo_colours: Vec<(u8, u8, u8)>,
     pub installed_skins: Vec<Skin>,
     pub files_dir: PathBuf,
+    pub lazer_root: PathBuf,
     pub client_realm_path: PathBuf,
     pub set_active_on_build: bool,
     pub extended_ini: SkinIni,
@@ -22,7 +25,7 @@ pub struct ApplyMixTask {
 pub enum WorkerTask {
     CheckProcess,
     LoadSkins,
-    ApplyMix(Box<ApplyMixTask>),
+    BuildSkin(Box<BuildSkinTask>),
 }
 
 pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
@@ -67,16 +70,26 @@ pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
                     ))));
                 }
             },
-            WorkerTask::ApplyMix(task) => {
-                let result = execute_apply_mix(
-                    &task.plan,
-                    &task.combo_colours,
-                    &task.installed_skins,
-                    &task.files_dir,
-                    &task.client_realm_path,
-                    task.set_active_on_build,
-                    &task.extended_ini,
-                );
+            WorkerTask::BuildSkin(task) => {
+                let result = match task.method {
+                    BuildMethod::OskPackage => execute_build_osk(
+                        &task.plan,
+                        &task.combo_colours,
+                        &task.installed_skins,
+                        &task.files_dir,
+                        &task.lazer_root,
+                        &task.extended_ini,
+                    ),
+                    BuildMethod::DirectRealm => execute_apply_mix(
+                        &task.plan,
+                        &task.combo_colours,
+                        &task.installed_skins,
+                        &task.files_dir,
+                        &task.client_realm_path,
+                        task.set_active_on_build,
+                        &task.extended_ini,
+                    ),
+                };
                 let _ = tx.send(AppEvent::MixCompleted(result));
             }
         }
@@ -137,5 +150,60 @@ fn execute_apply_mix(
         "Skin '{}' successfully installed into osu!lazer! (Backup: {:?})",
         plan.new_skin_name,
         outcome.backup_path.file_name().unwrap_or_default()
+    ))
+}
+
+fn execute_build_osk(
+    plan: &ManifestMixPlan,
+    combo_colours: &[(u8, u8, u8)],
+    installed_skins: &[Skin],
+    files_dir: &Path,
+    lazer_root: &Path,
+    extended_ini: &SkinIni,
+) -> Result<String, String> {
+    let mut skin_ini = extended_ini.clone();
+    skin_ini.set_general("Name", &plan.new_skin_name);
+    skin_ini.set_general("Author", &plan.new_skin_creator);
+    skin_ini.set_combo_colours(combo_colours);
+    let serialized_ini = skin_ini.to_string();
+
+    let safe_name: String = plan
+        .new_skin_name
+        .chars()
+        .map(|c| {
+            if c == '/'
+                || c == '\\'
+                || c == ':'
+                || c == '*'
+                || c == '?'
+                || c == '"'
+                || c == '<'
+                || c == '>'
+                || c == '|'
+            {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    let exports_dir = lazer_root.join("exports");
+    let osk_path = exports_dir.join(format!("{safe_name}.osk"));
+
+    mixer::export_osk(
+        files_dir,
+        installed_skins,
+        plan,
+        Some(&serialized_ini),
+        &osk_path,
+    )
+    .map_err(|e| format!("Failed to create .osk archive: {e}"))?;
+
+    let _ = mixer::launch_osk_file(&osk_path);
+
+    Ok(format!(
+        "Skin exported to '{}' and launched in osu!lazer!",
+        osk_path.file_name().unwrap_or_default().to_string_lossy()
     ))
 }

@@ -14,6 +14,13 @@ pub enum ActiveTab {
     Colors,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuildMethod {
+    #[default]
+    OskPackage,
+    DirectRealm,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub lazer_root: Option<PathBuf>,
@@ -39,6 +46,8 @@ pub struct AppState {
     pub last_hit_time: Option<f64>,
     pub demo_mode: bool,
     pub real_installed_skins: Vec<Skin>,
+    pub show_build_dialog: bool,
+    pub selected_build_method: BuildMethod,
 }
 
 impl Default for AppState {
@@ -77,6 +86,8 @@ impl Default for AppState {
             last_hit_time: None,
             demo_mode: false,
             real_installed_skins: Vec::new(),
+            show_build_dialog: false,
+            selected_build_method: BuildMethod::OskPackage,
         }
     }
 }
@@ -457,5 +468,12 @@ mod tests {
         state.disable_demo_mode();
         assert!(!state.demo_mode);
         assert!(state.installed_skins.is_empty());
+    }
+
+    #[test]
+    fn build_dialog_defaults_to_closed_and_osk_method() {
+        let state = AppState::default();
+        assert!(!state.show_build_dialog);
+        assert_eq!(state.selected_build_method, BuildMethod::OskPackage);
     }
 }

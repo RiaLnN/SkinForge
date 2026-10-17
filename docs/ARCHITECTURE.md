@@ -48,8 +48,21 @@ SkinForge/
 
 lazer identifies files by SHA-256 hash in `files/`. Mixing a cursor from skin A into skin B only adds a reference to the existing hash in B's file list; no bytes are copied. Files that do not exist yet (for example from an external donor folder) are hashed and placed into `files/` first.
 
-## Write safety
+## Integration modes
 
-1. Refuse to write while osu! is running.
-2. Copy `client.realm` (plus `.lock`, `.note`, `.management` if present) to `client.realm.bak-<timestamp>`.
-3. Apply the change as one atomic Realm transaction through the bridge.
+SkinForge supports two workflows for deploying mixed skins into osu!lazer:
+
+1. **Standard `.osk` Packaging (Recommended)**:
+   - Implemented in `mixer::export_osk` and `mixer::launch_osk_file`.
+   - Packages all resolved sprites, sounds, and generated `skin.ini` into a standard ZIP archive located in `<lazer_root>/exports/<skin_name>.osk`.
+   - Automatically forwards the `.osk` file to osu!lazer via `xdg-open` / Flatpak file forwarding on Linux, `cmd /c start` on Windows, or `open` on macOS.
+   - **Safety**: 100% database-safe. Never touches `client.realm` directly, eliminating any risk of database corruption or file locks even while osu!lazer is active.
+
+2. **Direct `client.realm` Injection (Zero-Copy)**:
+   - Implemented in `mixer::build_patch` and `bridge::apply_patch`.
+   - Modifies `client.realm` directly by registering the new skin manifest with references to existing SHA-256 hashes in `files/`.
+   - Avoids file duplication and applies instantly without an import cycle.
+   - **Safety**:
+     1. Strict process guard check (`process_guard::ensure_not_running`): refuses to write while osu!lazer is running to avoid database corruption or lock collisions.
+     2. Automatic backup of `client.realm` (plus `.lock`, `.note`, and `.management` if present) to `client.realm.bak-<timestamp>`.
+     3. Atomic transaction execution via the Realm .NET dynamic bridge.
