@@ -229,41 +229,54 @@ impl eframe::App for MixerApp {
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let playing = self.audio.is_playing();
-                        ui.add_enabled_ui(playing, |ui| {
-                            let stop_text = egui::RichText::new(format!(
-                                "{} Stop Audio",
-                                egui_phosphor::regular::STOP
-                            ))
-                            .color(if playing {
-                                Color32::from_rgb(255, 102, 171)
-                            } else {
-                                Color32::GRAY
-                            });
-                            if ui
-                                .button(stop_text)
-                                .on_hover_text("Stop currently playing audio immediately")
-                                .clicked()
-                            {
-                                self.audio.stop();
-                            }
-                        });
-
                         let mut vol_pct = (self.audio.volume() * 100.0).round();
                         let slider = egui::Slider::new(&mut vol_pct, 0.0..=100.0)
                             .suffix("%")
                             .show_value(true);
                         if ui
-                            .add_sized([110.0, 18.0], slider)
+                            .add_sized([115.0, 18.0], slider)
                             .on_hover_text("Master audio preview volume")
                             .changed()
                         {
                             self.audio.set_volume(vol_pct / 100.0);
                         }
-                        ui.label(
-                            egui::RichText::new(egui_phosphor::regular::SPEAKER_HIGH)
-                                .color(Color32::from_rgb(255, 130, 188)),
-                        );
+
+                        let (icon, icon_color, tip) = if vol_pct <= 0.0 {
+                            (
+                                egui_phosphor::regular::SPEAKER_SLASH,
+                                Color32::from_rgb(145, 130, 155),
+                                "Audio muted (0%). Click to restore volume",
+                            )
+                        } else if vol_pct <= 50.0 {
+                            (
+                                egui_phosphor::regular::SPEAKER_LOW,
+                                Color32::from_rgb(255, 130, 188),
+                                "Master audio preview volume. Click to mute",
+                            )
+                        } else {
+                            (
+                                egui_phosphor::regular::SPEAKER_HIGH,
+                                Color32::from_rgb(255, 130, 188),
+                                "Master audio preview volume. Click to mute",
+                            )
+                        };
+
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(icon).size(15.0).color(icon_color),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text(tip)
+                            .clicked()
+                        {
+                            if vol_pct > 0.0 {
+                                self.audio.set_volume(0.0);
+                            } else {
+                                self.audio.set_volume(0.7);
+                            }
+                        }
                     });
                 });
             });

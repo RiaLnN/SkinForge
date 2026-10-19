@@ -95,6 +95,8 @@ pub struct AppState {
     pub show_stable_skins: bool,
     pub skin_search_query: String,
     pub expanded_subgroups: HashSet<ComponentSubgroup>,
+    pub show_texture_viewer: bool,
+    pub texture_viewer_scale: f32,
 }
 
 impl Default for AppState {
@@ -153,6 +155,8 @@ impl Default for AppState {
             show_stable_skins: true,
             skin_search_query: String::new(),
             expanded_subgroups,
+            show_texture_viewer: false,
+            texture_viewer_scale: 0.0,
         }
     }
 }
