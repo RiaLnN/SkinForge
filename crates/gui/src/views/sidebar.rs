@@ -24,17 +24,29 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
         ui.add_space(6.0);
 
         // 1. Base skin selector (strictly truncated + ComboBox::truncate so long names never stretch the panel)
-        let (current_base_display, current_base_full) = state
+        let (current_base_job, current_base_full) = state
             .base_skin()
             .map(|s| {
-                let badge = s.badge_label().to_uppercase();
-                let short = truncate_text(&s.name, 16);
+                let short = truncate_text(&s.name, 15);
+                let job = build_skin_badged_job(s.source, &short, false);
                 (
-                    format!("{badge}  {short}"),
+                    job,
                     format!("{} ({}) — by {}", s.name, s.badge_label(), s.creator),
                 )
             })
-            .unwrap_or_else(|| ("Select skin...".to_string(), "No base skin selected".to_string()));
+            .unwrap_or_else(|| {
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    "Select skin...",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: FontId::proportional(12.5),
+                        color: Color32::from_rgb(215, 195, 225),
+                        ..Default::default()
+                    },
+                );
+                (job, "No base skin selected".to_string())
+            });
 
         ui.label(
             egui::RichText::new("Base skin (foundation):")
@@ -42,10 +54,11 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
                 .color(Color32::from_rgb(215, 195, 225)),
         );
         let combo_resp = egui::ComboBox::from_id_salt("base_skin_combobox")
-            .selected_text(current_base_display)
+            .selected_text(current_base_job)
             .width(field_width)
             .truncate()
             .show_ui(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 let skin_items: Vec<(String, String, String, SkinSource)> = state
                     .visible_skins()
                     .into_iter()
@@ -58,12 +71,10 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
                         SkinSource::Lazer => "lazer",
                         SkinSource::Stable => "stable",
                     };
-                    let job = build_skin_badged_job(source, &truncate_text(&name, 22), is_selected);
-                    let resp = ui
-                        .selectable_label(is_selected, job)
-                        .on_hover_text(format!("{name}\nCreator: {creator}\nSource: osu!{badge}"));
-                    if resp.clicked() {
+                    let tooltip = format!("{name}\nCreator: {creator}\nSource: osu!{badge}");
+                    if render_skin_list_row(ui, 230.0, is_selected, source, &name, &tooltip) {
                         state.select_base_skin(&id);
+                        ui.close_menu();
                     }
                 }
             });
@@ -331,11 +342,11 @@ fn render_version_filter_toggle(
     ui.add(btn).on_hover_text(tooltip).clicked()
 }
 
-/// Renders a single left-aligned skin row in the bottom list:
+/// Renders a single left-aligned skin row (used in both the bottom sidebar list and all base/donor dropdowns):
 /// - No radio circle icon (active state is indicated by row background & border)
 /// - Distinct pill badge for `LAZER` / `STABLE` on the left so it never merges with the skin name
 /// - Left-aligned truncated skin name
-fn render_skin_list_row(
+pub fn render_skin_list_row(
     ui: &mut egui::Ui,
     width: f32,
     is_active: bool,
@@ -401,7 +412,7 @@ fn render_skin_list_row(
         // Left-aligned skin name starting after the badge pill
         let text_x = pill_rect.max.x + 8.0;
         let avail_text_w = (rect.max.x - text_x - 6.0).max(20.0);
-        let max_chars = ((avail_text_w / 6.8) as usize).clamp(10, 24);
+        let max_chars = ((avail_text_w / 6.8) as usize).clamp(10, 26);
         let short_name = truncate_text(name, max_chars);
         let name_color = if is_active {
             Color32::WHITE
@@ -421,7 +432,51 @@ fn render_skin_list_row(
     resp.on_hover_text(tooltip).clicked()
 }
 
-fn build_skin_badged_job(
+/// Renders a left-aligned non-skin option row inside donor dropdowns (e.g. "Base skin (foundation)" or "Disable / Remove (None)").
+pub fn render_plain_option_row(
+    ui: &mut egui::Ui,
+    width: f32,
+    is_active: bool,
+    label: &str,
+    text_color: Color32,
+) -> bool {
+    let row_height = 25.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, row_height), egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let hovered = resp.hovered();
+        let (row_fill, row_stroke) = if is_active {
+            (
+                Color32::from_rgb(175, 42, 108),
+                Stroke::new(1.0_f32, Color32::from_rgb(255, 130, 190)),
+            )
+        } else if hovered {
+            (
+                Color32::from_rgb(48, 30, 62),
+                Stroke::new(1.0_f32, Color32::from_rgb(98, 60, 120)),
+            )
+        } else {
+            (
+                Color32::from_rgb(27, 19, 34),
+                Stroke::new(1.0_f32, Color32::from_rgb(46, 31, 56)),
+            )
+        };
+
+        ui.painter().rect(rect, 5.0, row_fill, row_stroke);
+        ui.painter().text(
+            pos2(rect.min.x + 8.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            FontId::proportional(12.0),
+            if is_active { Color32::WHITE } else { text_color },
+        );
+    }
+
+    resp.clicked()
+}
+
+/// Builds a `LayoutJob` with a styled `STABLE` / `LAZER` badge pill for closed `ComboBox` selected text.
+pub fn build_skin_badged_job(
     source: SkinSource,
     short_name: &str,
     is_selected: bool,

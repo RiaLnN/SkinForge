@@ -529,22 +529,80 @@ fn render_element_inspector(
     let slot = state.inspected_slot;
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
 
-    let source_desc = match source {
+    let source_job = match source {
         SlotSource::Base => state
             .base_skin()
-            .map(|s| format!("Base: [{}] {}", s.badge_label(), truncate_text(&s.name, 20)))
-            .unwrap_or_else(|| "Base skin".to_string()),
-        SlotSource::None => "Disabled (None)".to_string(),
+            .map(|s| {
+                crate::views::sidebar::build_skin_badged_job(
+                    s.source,
+                    &truncate_text(&s.name, 18),
+                    false,
+                )
+            })
+            .unwrap_or_else(|| {
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    "Base skin",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(11.0),
+                        color: Color32::from_rgb(255, 130, 188),
+                        ..Default::default()
+                    },
+                );
+                job
+            }),
+        SlotSource::None => {
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                "Disabled (None)",
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(11.0),
+                    color: Color32::from_rgb(255, 185, 75),
+                    ..Default::default()
+                },
+            );
+            job
+        }
         SlotSource::CustomFile(p) => {
             let fname = p.file_name().and_then(|f| f.to_str()).unwrap_or("custom");
-            format!("Custom: {}", truncate_text(fname, 20))
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &format!("Custom: {}", truncate_text(fname, 20)),
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(11.0),
+                    color: Color32::from_rgb(125, 215, 255),
+                    ..Default::default()
+                },
+            );
+            job
         }
         SlotSource::Donor(id) => state
             .installed_skins
             .iter()
             .find(|s| &s.id == id)
-            .map(|s| format!("Donor: [{}] {}", s.badge_label(), truncate_text(&s.name, 20)))
-            .unwrap_or_else(|| "Donor skin".to_string()),
+            .map(|s| {
+                crate::views::sidebar::build_skin_badged_job(
+                    s.source,
+                    &truncate_text(&s.name, 18),
+                    false,
+                )
+            })
+            .unwrap_or_else(|| {
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    "Donor skin",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(11.0),
+                        color: Color32::from_rgb(255, 130, 188),
+                        ..Default::default()
+                    },
+                );
+                job
+            }),
     };
 
     egui::Frame::group(ui.style())
@@ -609,11 +667,7 @@ fn render_element_inspector(
                         .size(11.0)
                         .color(Color32::from_rgb(180, 160, 198)),
                     );
-                    ui.label(
-                        egui::RichText::new(source_desc)
-                            .size(11.0)
-                            .color(Color32::from_rgb(255, 130, 188)),
-                    );
+                    ui.label(source_job);
                 });
             });
         });

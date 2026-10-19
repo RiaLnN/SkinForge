@@ -1,4 +1,4 @@
-use eframe::egui::{self, pos2, vec2, Color32, Rect};
+use eframe::egui::{self, pos2, vec2, Color32, FontId, Rect};
 use skinforge_core::bridge::SkinSource;
 use skinforge_core::categorize::{ComponentCategory, ComponentSlot, ComponentSubgroup};
 use skinforge_core::mixer::SlotSource;
@@ -7,6 +7,9 @@ use crate::audio::AudioPlayer;
 use crate::state::{truncate_text, ActiveTab, AppState};
 use crate::textures::{resolve_slot_file_path, TextureCache};
 use crate::views::colors::render_colors;
+use crate::views::sidebar::{
+    build_skin_badged_job, render_plain_option_row, render_skin_list_row,
+};
 
 pub fn render_categories(
     ui: &mut egui::Ui,
@@ -124,14 +127,11 @@ fn render_category_content(
             .width(195.0)
             .truncate()
             .show_ui(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 for (id, name, source) in &donor_candidates {
-                    let badge = match source {
-                        SkinSource::Lazer => "lazer",
-                        SkinSource::Stable => "stable",
-                    };
-                    let label = format!("[{badge}] {}", truncate_text(name, 24));
-                    if ui.button(label).on_hover_text(name).clicked() {
+                    if render_skin_list_row(ui, 230.0, false, *source, name, name) {
                         state.batch_set_category(category, id);
+                        ui.close_menu();
                     }
                 }
             });
@@ -245,14 +245,11 @@ fn render_subgroup_section(
                         .width(135.0)
                         .truncate()
                         .show_ui(ui, |ui| {
+                            ui.spacing_mut().item_spacing.y = 4.0;
                             for (id, name, source) in donor_candidates {
-                                let badge = match source {
-                                    SkinSource::Lazer => "lazer",
-                                    SkinSource::Stable => "stable",
-                                };
-                                let label = format!("[{badge}] {}", truncate_text(name, 24));
-                                if ui.button(label).on_hover_text(name).clicked() {
+                                if render_skin_list_row(ui, 230.0, false, *source, name, name) {
                                     state.batch_set_subgroup(subgroup, id);
+                                    ui.close_menu();
                                 }
                             }
                         });
@@ -271,6 +268,20 @@ fn render_subgroup_section(
         });
 }
 
+fn make_plain_combo_job(text: &str, color: Color32) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::proportional(12.0),
+            color,
+            ..Default::default()
+        },
+    );
+    job
+}
+
 fn render_slot_row(
     ui: &mut egui::Ui,
     state: &mut AppState,
@@ -285,22 +296,22 @@ fn render_slot_row(
         .cloned()
         .unwrap_or(SlotSource::Base);
 
-    let (short_source_text, full_source_tooltip, source_color) = match &current_source {
+    let (selected_job, full_source_tooltip, source_color) = match &current_source {
         SlotSource::Base => (
-            "Base skin".to_string(),
+            make_plain_combo_job("Base skin", Color32::from_rgb(205, 190, 218)),
             "Inherited from Base skin (foundation)".to_string(),
             Color32::from_rgb(205, 190, 218),
         ),
         SlotSource::None => {
             if slot == ComponentSlot::HudLayout {
                 (
-                    "Default HUD (None)".to_string(),
+                    make_plain_combo_job("Default HUD (None)", Color32::from_rgb(255, 185, 75)),
                     "Uses default osu!lazer HUD (no custom skin.json)".to_string(),
                     Color32::from_rgb(255, 185, 75),
                 )
             } else {
                 (
-                    "Disabled (None)".to_string(),
+                    make_plain_combo_job("Disabled (None)", Color32::from_rgb(255, 185, 75)),
                     "Component is disabled / replaced with blank asset".to_string(),
                     Color32::from_rgb(255, 185, 75),
                 )
@@ -312,7 +323,10 @@ fn render_slot_row(
                 .and_then(|f| f.to_str())
                 .unwrap_or("custom");
             (
-                format!("File: {}", truncate_text(name, 13)),
+                make_plain_combo_job(
+                    &format!("File: {}", truncate_text(name, 13)),
+                    Color32::from_rgb(125, 215, 255),
+                ),
                 format!("Custom file from disk:\n{}", path.display()),
                 Color32::from_rgb(125, 215, 255),
             )
@@ -324,14 +338,14 @@ fn render_slot_row(
             .map(|s| {
                 let badge = s.badge_label();
                 (
-                    format!("[{badge}] {}", truncate_text(&s.name, 13)),
+                    build_skin_badged_job(s.source, &truncate_text(&s.name, 12), false),
                     format!("Donor skin: {} (osu!{badge})", s.name),
                     Color32::from_rgb(255, 130, 188),
                 )
             })
             .unwrap_or_else(|| {
                 (
-                    "Unknown donor".to_string(),
+                    make_plain_combo_job("Unknown donor", Color32::from_rgb(255, 120, 120)),
                     "Selected donor skin is not loaded".to_string(),
                     Color32::from_rgb(255, 120, 120),
                 )
@@ -465,24 +479,28 @@ fn render_slot_row(
                     full_source_tooltip
                 ));
 
-                // Column 3: Bounded Donor ComboBox with .truncate()
+                // Column 3: Bounded Donor ComboBox with .truncate() and unified STABLE / LAZER badges
                 let action_buttons_width = 62.0;
                 let combo_width =
                     (ui.available_width() - action_buttons_width).clamp(110.0, 200.0);
 
                 let combo_resp = egui::ComboBox::from_id_salt(format!("slot_combo_{:?}", slot))
-                    .selected_text(short_source_text)
+                    .selected_text(selected_job)
                     .width(combo_width)
                     .truncate()
                     .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                matches!(current_source, SlotSource::Base),
-                                "Base skin (foundation)",
-                            )
-                            .clicked()
-                        {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        let popup_row_w = 230.0;
+
+                        if render_plain_option_row(
+                            ui,
+                            popup_row_w,
+                            matches!(current_source, SlotSource::Base),
+                            "Base skin (foundation)",
+                            Color32::from_rgb(235, 222, 245),
+                        ) {
                             state.set_slot_source(slot, SlotSource::Base);
+                            ui.close_menu();
                         }
 
                         if slot.can_be_none() {
@@ -491,14 +509,15 @@ fn render_slot_row(
                             } else {
                                 "Disable / Remove (None)"
                             };
-                            if ui
-                                .selectable_label(
-                                    matches!(current_source, SlotSource::None),
-                                    none_label,
-                                )
-                                .clicked()
-                            {
+                            if render_plain_option_row(
+                                ui,
+                                popup_row_w,
+                                matches!(current_source, SlotSource::None),
+                                none_label,
+                                Color32::from_rgb(255, 195, 100),
+                            ) {
                                 state.set_slot_source(slot, SlotSource::None);
+                                ui.close_menu();
                             }
                         }
 
@@ -536,17 +555,16 @@ fn render_slot_row(
                                 SlotSource::Donor(d_id) => d_id == id,
                                 _ => false,
                             };
-                            let badge = match source {
-                                SkinSource::Lazer => "lazer",
-                                SkinSource::Stable => "stable",
-                            };
-                            let item_label = format!("[{badge}] {}", truncate_text(name, 24));
-                            if ui
-                                .selectable_label(is_this_donor, item_label)
-                                .on_hover_text(name)
-                                .clicked()
-                            {
+                            if render_skin_list_row(
+                                ui,
+                                popup_row_w,
+                                is_this_donor,
+                                *source,
+                                name,
+                                name,
+                            ) {
                                 state.set_slot_source(slot, SlotSource::Donor(id.clone()));
+                                ui.close_menu();
                             }
                         }
                     });
