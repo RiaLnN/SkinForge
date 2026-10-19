@@ -81,12 +81,8 @@ impl TextureCache {
         state: &AppState,
         slot: ComponentSlot,
     ) -> Option<&egui::TextureHandle> {
-        let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
-        if let SlotSource::CustomFile(path) = source {
-            return self.get_or_load_path(ctx, path);
-        }
-        let hash = resolve_slot_file_hash(state, slot)?;
-        self.get_or_load(ctx, state.files_dir.as_deref(), hash)
+        let path = resolve_slot_file_path(state, slot)?;
+        self.get_or_load_path(ctx, &path)
     }
 
     pub fn clear(&mut self) {
@@ -94,46 +90,64 @@ impl TextureCache {
     }
 }
 
-/// Resolves the file hash to display for a slot considering the selected source
+/// Resolves the `(Skin, SkinFile)` pair to display for a slot considering the selected source
 /// and automatic fallback to base skin.
-pub fn resolve_slot_file_hash(state: &AppState, slot: ComponentSlot) -> Option<&str> {
+pub fn resolve_slot_skin_file<'a>(
+    state: &'a AppState,
+    slot: ComponentSlot,
+) -> Option<(
+    &'a skinforge_core::bridge::Skin,
+    &'a skinforge_core::bridge::SkinFile,
+)> {
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
     match source {
         SlotSource::None => None,
         SlotSource::CustomFile(_) => None,
-        SlotSource::Base => find_file_hash_for_slot(state.base_skin()?, slot),
+        SlotSource::Base => {
+            let base = state.base_skin()?;
+            let file = find_skin_file_for_slot(base, slot)?;
+            Some((base, file))
+        }
         SlotSource::Donor(donor_id) => {
             let donor_skin = state.installed_skins.iter().find(|s| &s.id == donor_id);
             if let Some(donor) = donor_skin {
-                if let Some(hash) = find_file_hash_for_slot(donor, slot) {
-                    return Some(hash);
+                if let Some(file) = find_skin_file_for_slot(donor, slot) {
+                    return Some((donor, file));
                 }
             }
-            // Fallback to base skin, matching osu!lazer behavior
-            find_file_hash_for_slot(state.base_skin()?, slot)
+            // Fallback to base skin, matching osu! behavior
+            let base = state.base_skin()?;
+            let file = find_skin_file_for_slot(base, slot)?;
+            Some((base, file))
         }
     }
+}
+
+/// Resolves the file hash to display for a slot considering the selected source
+/// and automatic fallback to base skin.
+pub fn resolve_slot_file_hash(state: &AppState, slot: ComponentSlot) -> Option<&str> {
+    resolve_slot_skin_file(state, slot).map(|(_, file)| file.file_hash.as_str())
 }
 
 pub fn resolve_slot_texture_hash(state: &AppState, slot: ComponentSlot) -> Option<&str> {
     resolve_slot_file_hash(state, slot)
 }
 
-/// Returns the absolute path to a resource file in osu!lazer content-addressed storage.
+/// Returns the absolute path to a resource file in either osu!lazer content-addressed storage
+/// or an osu!stable skin folder (or custom imported file).
 pub fn resolve_slot_file_path(state: &AppState, slot: ComponentSlot) -> Option<std::path::PathBuf> {
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
     if let SlotSource::CustomFile(path) = source {
         return Some(path.clone());
     }
-    let hash = resolve_slot_file_hash(state, slot)?;
-    let files_dir = state.files_dir.as_ref()?;
-    Some(skinforge_core::paths::hashed_storage_path(files_dir, hash))
+    let (skin, skin_file) = resolve_slot_skin_file(state, slot)?;
+    skin.resolve_file_path(state.files_dir.as_deref(), skin_file)
 }
 
-fn find_file_hash_for_slot(
+fn find_skin_file_for_slot(
     skin: &skinforge_core::bridge::Skin,
     slot: ComponentSlot,
-) -> Option<&str> {
+) -> Option<&skinforge_core::bridge::SkinFile> {
     let target_name = slot.primary_filename();
 
     if slot.is_audio() {
@@ -143,7 +157,7 @@ fn find_file_hash_for_slot(
             .iter()
             .find(|f| f.filename.eq_ignore_ascii_case(target_name))
         {
-            return Some(&f.file_hash);
+            return Some(f);
         }
 
         // 2. Matching with alternative audio extensions (.mp3, .ogg)
@@ -155,24 +169,23 @@ fn find_file_hash_for_slot(
                     .iter()
                     .find(|f| f.filename.eq_ignore_ascii_case(&candidate))
                 {
-                    return Some(&f.file_hash);
+                    return Some(f);
                 }
             }
         }
 
         // 3. Fallback to any audio file matching the slot
-        return skin
-            .files
-            .iter()
-            .find(|f| {
-                let lower = f.filename.to_ascii_lowercase();
-                (lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg"))
-                    && slot.matches_filename(&f.filename)
-            })
-            .map(|f| f.file_hash.as_str());
+        return skin.files.iter().find(|f| {
+            let lower = f.filename.to_ascii_lowercase();
+            (lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg"))
+                && slot.matches_filename(&f.filename)
+        });
     }
 
-    let name_no_ext = target_name.strip_suffix(".png").unwrap_or(target_name);
+    let name_no_ext = target_name
+        .strip_suffix(".png")
+        .or_else(|| target_name.strip_suffix(".jpg"))
+        .unwrap_or(target_name);
     let target_2x = format!("{name_no_ext}@2x.png");
 
     // Look for @2x first, then 1x, then any matching file for slot
@@ -181,7 +194,7 @@ fn find_file_hash_for_slot(
         .iter()
         .find(|f| f.filename.eq_ignore_ascii_case(&target_2x))
     {
-        return Some(&f.file_hash);
+        return Some(f);
     }
 
     if let Some(f) = skin
@@ -189,13 +202,38 @@ fn find_file_hash_for_slot(
         .iter()
         .find(|f| f.filename.eq_ignore_ascii_case(target_name))
     {
-        return Some(&f.file_hash);
+        return Some(f);
+    }
+
+    // For ComboNumbers (`default-1.png` vs `combo-1.png`), prefer `1` digit for preview thumbnail
+    if slot == ComponentSlot::ComboNumbers {
+        for candidate in &[
+            "default-1@2x.png",
+            "default-1.png",
+            "combo-1@2x.png",
+            "combo-1.png",
+        ] {
+            if let Some(f) = skin
+                .files
+                .iter()
+                .find(|f| f.filename.eq_ignore_ascii_case(candidate))
+            {
+                return Some(f);
+            }
+        }
     }
 
     skin.files
         .iter()
         .find(|f| slot.matches_filename(&f.filename))
-        .map(|f| f.file_hash.as_str())
+}
+
+#[cfg(test)]
+fn find_file_hash_for_slot(
+    skin: &skinforge_core::bridge::Skin,
+    slot: ComponentSlot,
+) -> Option<&str> {
+    find_skin_file_for_slot(skin, slot).map(|f| f.file_hash.as_str())
 }
 
 #[cfg(test)]
@@ -243,5 +281,31 @@ mod tests {
             find_file_hash_for_slot(&skin, ComponentSlot::Hitnormal),
             Some("hash_softhit")
         );
+    }
+
+    #[test]
+    fn resolve_slot_file_path_works_for_stable_skin_without_lazer_files_dir() {
+        let mut state = AppState::default();
+        state.files_dir = None; // No osu!lazer installed
+        let stable_folder = std::path::PathBuf::from("/tmp/fake-stable/Skins/WhiteCat");
+        let stable_skin = Skin {
+            id: "stable:WhiteCat".to_string(),
+            name: "WhiteCat".to_string(),
+            creator: "CK".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![SkinFile {
+                filename: "hitcircle@2x.png".to_string(),
+                file_hash: "stable:WhiteCat/hitcircle@2x.png".to_string(),
+            }],
+            source: skinforge_core::bridge::SkinSource::Stable,
+            root_dir: Some(stable_folder.clone()),
+        };
+
+        state.set_installed_skins(vec![stable_skin]);
+        let resolved = resolve_slot_file_path(&state, ComponentSlot::Hitcircle);
+        assert_eq!(resolved, Some(stable_folder.join("hitcircle@2x.png")));
     }
 }

@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use eframe::egui;
-use skinforge_core::bridge::Skin;
-use skinforge_core::categorize::{ComponentCategory, ComponentSlot};
+use skinforge_core::bridge::{Skin, SkinSource};
+use skinforge_core::categorize::{ComponentCategory, ComponentSlot, ComponentSubgroup};
 use skinforge_core::mixer::{ManifestMixPlan, SlotAssignment, SlotSource};
-
 use skinforge_core::skin_ini::SkinIni;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,11 +20,66 @@ pub enum BuildMethod {
     DirectRealm,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitJudgementKind {
+    Hit300,
+    Hit100,
+    Hit50,
+    Miss,
+}
+
+impl HitJudgementKind {
+    pub fn slot(&self) -> ComponentSlot {
+        match self {
+            Self::Hit300 => ComponentSlot::Hit300,
+            Self::Hit100 => ComponentSlot::Hit100,
+            Self::Hit50 => ComponentSlot::Hit50,
+            Self::Miss => ComponentSlot::Hit0,
+        }
+    }
+
+    pub fn fallback_text(&self) -> &'static str {
+        match self {
+            Self::Hit300 => "300",
+            Self::Hit100 => "100",
+            Self::Hit50 => "50",
+            Self::Miss => "MISS",
+        }
+    }
+
+    pub fn fallback_color(&self) -> egui::Color32 {
+        match self {
+            Self::Hit300 => egui::Color32::from_rgb(100, 225, 255),
+            Self::Hit100 => egui::Color32::from_rgb(90, 235, 140),
+            Self::Hit50 => egui::Color32::from_rgb(255, 200, 90),
+            Self::Miss => egui::Color32::from_rgb(255, 85, 115),
+        }
+    }
+}
+
+/// Safely truncates a UTF-8 string to at most `max_chars` characters, appending `…` if truncated.
+pub fn truncate_text(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let char_count = text.chars().count();
+    if char_count <= max_chars {
+        return text.to_string();
+    }
+    let keep = max_chars.saturating_sub(1);
+    let mut out: String = text.chars().take(keep).collect();
+    out.push('…');
+    out
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub lazer_root: Option<PathBuf>,
     pub files_dir: Option<PathBuf>,
     pub client_realm_path: Option<PathBuf>,
+    pub stable_root: Option<PathBuf>,
+    pub custom_lazer_root: Option<PathBuf>,
+    pub custom_stable_root: Option<PathBuf>,
     pub installed_skins: Vec<Skin>,
     pub selected_base_skin_id: Option<String>,
     pub new_skin_name: String,
@@ -38,12 +92,19 @@ pub struct AppState {
     pub is_working: bool,
     pub is_game_running: bool,
     pub set_active_on_build: bool,
+    pub open_after_export: bool,
     pub show_advanced_cursor: bool,
     pub show_advanced_gameplay: bool,
     pub show_advanced_colors: bool,
     pub extended_ini: SkinIni,
     pub cursor_trail_history: Vec<(egui::Pos2, f64)>,
     pub last_hit_time: Option<f64>,
+    pub last_hit_judgement: Option<(HitJudgementKind, f64)>,
+    pub inspected_slot: ComponentSlot,
+    pub show_lazer_skins: bool,
+    pub show_stable_skins: bool,
+    pub skin_search_query: String,
+    pub expanded_subgroups: HashSet<ComponentSubgroup>,
     pub demo_mode: bool,
     pub real_installed_skins: Vec<Skin>,
     pub show_build_dialog: bool,
@@ -57,10 +118,28 @@ impl Default for AppState {
             slot_sources.insert(*slot, SlotSource::Base);
         }
 
+        let mut expanded_subgroups = HashSet::new();
+        for cat in [
+            ComponentCategory::Cursor,
+            ComponentCategory::Gameplay,
+            ComponentCategory::Hud,
+            ComponentCategory::Interface,
+            ComponentCategory::Audio,
+        ] {
+            for &sub in ComponentSubgroup::subgroups_for_category(cat) {
+                if sub.default_expanded() {
+                    expanded_subgroups.insert(sub);
+                }
+            }
+        }
+
         Self {
             lazer_root: None,
             files_dir: None,
             client_realm_path: None,
+            stable_root: None,
+            custom_lazer_root: None,
+            custom_stable_root: None,
             installed_skins: Vec::new(),
             selected_base_skin_id: None,
             new_skin_name: "Mixed Skin".to_string(),
@@ -78,12 +157,19 @@ impl Default for AppState {
             is_working: false,
             is_game_running: false,
             set_active_on_build: true,
+            open_after_export: true,
             show_advanced_cursor: false,
             show_advanced_gameplay: false,
             show_advanced_colors: false,
             extended_ini: SkinIni::default(),
             cursor_trail_history: Vec::new(),
             last_hit_time: None,
+            last_hit_judgement: None,
+            inspected_slot: ComponentSlot::Hitcircle,
+            show_lazer_skins: true,
+            show_stable_skins: true,
+            skin_search_query: String::new(),
+            expanded_subgroups,
             demo_mode: false,
             real_installed_skins: Vec::new(),
             show_build_dialog: false,
@@ -144,7 +230,11 @@ pub fn generate_mock_demo_skins() -> Vec<Skin> {
                 hash: format!("demo_hash_{i}"),
                 delete_pending: false,
                 files,
-                source: Default::default(),
+                source: if i % 2 == 0 {
+                    SkinSource::Lazer
+                } else {
+                    SkinSource::Stable
+                },
                 root_dir: None,
             }
         })
@@ -152,6 +242,70 @@ pub fn generate_mock_demo_skins() -> Vec<Skin> {
 }
 
 impl AppState {
+    pub fn visible_skins(&self) -> Vec<&Skin> {
+        let query = self.skin_search_query.trim().to_lowercase();
+        self.installed_skins
+            .iter()
+            .filter(|s| match s.source {
+                SkinSource::Lazer => self.show_lazer_skins,
+                SkinSource::Stable => self.show_stable_skins,
+            })
+            .filter(|s| {
+                if query.is_empty() {
+                    true
+                } else {
+                    s.name.to_lowercase().contains(&query)
+                        || s.creator.to_lowercase().contains(&query)
+                }
+            })
+            .collect()
+    }
+
+    pub fn count_by_source(&self, source: SkinSource) -> usize {
+        self.installed_skins
+            .iter()
+            .filter(|s| s.source == source)
+            .count()
+    }
+
+    pub fn toggle_subgroup(&mut self, subgroup: ComponentSubgroup) {
+        if !self.expanded_subgroups.remove(&subgroup) {
+            self.expanded_subgroups.insert(subgroup);
+        }
+    }
+
+    pub fn is_subgroup_expanded(&self, subgroup: ComponentSubgroup) -> bool {
+        self.expanded_subgroups.contains(&subgroup)
+    }
+
+    pub fn batch_set_subgroup(&mut self, subgroup: ComponentSubgroup, donor_id: &str) {
+        for slot in subgroup.slots() {
+            self.slot_sources
+                .insert(slot, SlotSource::Donor(donor_id.to_string()));
+        }
+    }
+
+    pub fn reset_subgroup_to_base(&mut self, subgroup: ComponentSubgroup) {
+        for slot in subgroup.slots() {
+            self.slot_sources.insert(slot, SlotSource::Base);
+        }
+    }
+
+    pub fn record_hit_judgement(&mut self, cycle: f32, time: f64) -> HitJudgementKind {
+        let judgement = if cycle >= 0.72 {
+            HitJudgementKind::Hit300
+        } else if cycle >= 0.45 {
+            HitJudgementKind::Hit100
+        } else if cycle >= 0.22 {
+            HitJudgementKind::Hit50
+        } else {
+            HitJudgementKind::Miss
+        };
+        self.last_hit_time = Some(time);
+        self.last_hit_judgement = Some((judgement, time));
+        judgement
+    }
+
     pub fn enable_demo_mode(&mut self) {
         self.demo_mode = true;
         if self.real_installed_skins.is_empty() && !self.installed_skins.is_empty() {
@@ -218,9 +372,10 @@ impl AppState {
 
     pub fn trigger_hit(&mut self, time: f64) {
         self.last_hit_time = Some(time);
+        self.last_hit_judgement = Some((HitJudgementKind::Hit300, time));
     }
 
-    /// Loads skin list from database, filtering out built-in protected skins
+    /// Loads skin list from database and/or osu!stable folder, filtering out built-in protected skins
     /// (Protected == true) and empty skins with zero files.
     pub fn set_installed_skins(&mut self, skins: Vec<Skin>) {
         let filtered: Vec<Skin> = skins
@@ -257,16 +412,14 @@ impl AppState {
             self.new_skin_name = format!("{} + Mixed", skin.name);
 
             // Attempt to load base skin's skin.ini into extended_ini
-            if let Some(files_dir) = &self.files_dir {
-                if let Some(ini_file) = skin
-                    .files
-                    .iter()
-                    .find(|f| f.filename.eq_ignore_ascii_case("skin.ini"))
-                {
-                    let path =
-                        skinforge_core::paths::hashed_storage_path(files_dir, &ini_file.file_hash);
-                    if let Ok(text) = std::fs::read_to_string(&path) {
-                        self.extended_ini = SkinIni::parse(&text);
+            if let Some(ini_file) = skin
+                .files
+                .iter()
+                .find(|f| f.filename.eq_ignore_ascii_case("skin.ini"))
+            {
+                if let Some(path) = skin.resolve_file_path(self.files_dir.as_deref(), ini_file) {
+                    if let Ok(parsed) = SkinIni::read_from_file(&path) {
+                        self.extended_ini = parsed;
                         let combos = self.extended_ini.combo_colours();
                         if !combos.is_empty() {
                             self.combo_colours = combos.into_iter().map(|(_, rgb)| rgb).collect();
@@ -479,5 +632,61 @@ mod tests {
         let state = AppState::default();
         assert!(!state.show_build_dialog);
         assert_eq!(state.selected_build_method, BuildMethod::OskPackage);
+    }
+
+    #[test]
+    fn truncate_text_handles_multibyte_utf8_and_short_strings() {
+        assert_eq!(truncate_text("Short", 10), "Short");
+        assert_eq!(
+            truncate_text("『 WhiteCat 2.1 (CK) Very Long Skin Name 』", 14),
+            "『 WhiteCat 2.…"
+        );
+        assert_eq!(truncate_text("КириллицаДлинноеИмя", 9), "Кириллиц…");
+    }
+
+    #[test]
+    fn visible_skins_filters_by_source_and_search_query() {
+        let mut state = AppState::default();
+        let mut s_lazer = make_skin("1", "Rafis HDDT", false, &["cursor.png"]);
+        s_lazer.source = skinforge_core::bridge::SkinSource::Lazer;
+        let mut s_stable = make_skin("2", "WhiteCat 1.0", false, &["cursor.png"]);
+        s_stable.source = skinforge_core::bridge::SkinSource::Stable;
+
+        state.set_installed_skins(vec![s_lazer, s_stable]);
+        assert_eq!(state.visible_skins().len(), 2);
+
+        state.show_lazer_skins = false;
+        assert_eq!(state.visible_skins().len(), 1);
+        assert_eq!(state.visible_skins()[0].name, "WhiteCat 1.0");
+
+        state.show_lazer_skins = true;
+        state.skin_search_query = "rafis".to_string();
+        assert_eq!(state.visible_skins().len(), 1);
+        assert_eq!(state.visible_skins()[0].name, "Rafis HDDT");
+    }
+
+    #[test]
+    fn record_hit_judgement_assigns_300_100_50_and_miss_by_cycle_timing() {
+        let mut state = AppState::default();
+        assert_eq!(
+            state.record_hit_judgement(0.85, 1.0),
+            HitJudgementKind::Hit300
+        );
+        assert_eq!(
+            state.record_hit_judgement(0.60, 2.0),
+            HitJudgementKind::Hit100
+        );
+        assert_eq!(
+            state.record_hit_judgement(0.30, 3.0),
+            HitJudgementKind::Hit50
+        );
+        assert_eq!(
+            state.record_hit_judgement(0.10, 4.0),
+            HitJudgementKind::Miss
+        );
+        assert_eq!(
+            state.last_hit_judgement,
+            Some((HitJudgementKind::Miss, 4.0))
+        );
     }
 }
