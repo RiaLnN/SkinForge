@@ -1,5 +1,5 @@
 use skinforge_core::bridge::{RealmBridge, Skin};
-use skinforge_core::mixer::{self, ManifestMixPlan};
+use skinforge_core::mixer::{self, LaunchTarget, ManifestMixPlan};
 use skinforge_core::paths::{self, find_realm_bridge_binary};
 use skinforge_core::skin_ini::SkinIni;
 use std::path::{Path, PathBuf};
@@ -12,8 +12,9 @@ pub struct ExportOskTask {
     pub combo_colours: Vec<(u8, u8, u8)>,
     pub installed_skins: Vec<Skin>,
     pub files_dir: Option<PathBuf>,
+    pub stable_root: Option<PathBuf>,
     pub output_path: PathBuf,
-    pub open_after_export: bool,
+    pub launch_target: LaunchTarget,
     pub extended_ini: SkinIni,
 }
 
@@ -94,8 +95,9 @@ pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
                     &task.combo_colours,
                     &task.installed_skins,
                     task.files_dir.as_deref(),
+                    task.stable_root.as_deref(),
                     &task.output_path,
-                    task.open_after_export,
+                    task.launch_target,
                     &task.extended_ini,
                 );
                 let _ = tx.send(AppEvent::MixCompleted(result));
@@ -123,13 +125,15 @@ pub fn sanitize_skin_filename(name: &str) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_export_osk(
     plan: &ManifestMixPlan,
     combo_colours: &[(u8, u8, u8)],
     installed_skins: &[Skin],
     files_dir: Option<&Path>,
+    stable_root: Option<&Path>,
     output_path: &Path,
-    open_after_export: bool,
+    launch_target: LaunchTarget,
     extended_ini: &SkinIni,
 ) -> Result<String, String> {
     let mut skin_ini = extended_ini.clone();
@@ -159,19 +163,24 @@ fn execute_export_osk(
     )
     .map_err(|e| format!("Failed to create .osk archive: {e}"))?;
 
-    if open_after_export {
-        let _ = mixer::launch_osk_file(output_path);
-        Ok(format!(
-            "Exported '{}' and opened in osu!",
-            output_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ))
-    } else {
-        Ok(format!(
-            "Exported .osk skin to '{}'",
-            output_path.display()
-        ))
+    let filename_display = output_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+
+    match launch_target {
+        LaunchTarget::None => Ok(format!("Exported '{filename_display}'")),
+        LaunchTarget::Lazer => {
+            let _ = mixer::launch_osk_with_target(output_path, LaunchTarget::Lazer, stable_root);
+            Ok(format!(
+                "Exported '{filename_display}' and opened in osu!lazer"
+            ))
+        }
+        LaunchTarget::Stable => {
+            let _ = mixer::launch_osk_with_target(output_path, LaunchTarget::Stable, stable_root);
+            Ok(format!(
+                "Exported '{filename_display}' and opened in osu!stable"
+            ))
+        }
     }
 }

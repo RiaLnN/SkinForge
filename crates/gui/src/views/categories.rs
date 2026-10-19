@@ -14,7 +14,12 @@ pub fn render_categories(
     textures: &mut TextureCache,
     audio: &AudioPlayer,
 ) {
+    let avail_w = ui.available_width();
+    ui.set_max_width(avail_w);
+
     ui.vertical(|ui| {
+        ui.set_max_width(avail_w);
+
         // Category tabs (5 component categories + Colors & Settings)
         ui.horizontal_wrapped(|ui| {
             render_tab_button(
@@ -81,7 +86,11 @@ fn render_tab_button(
     label: &str,
 ) {
     let is_active = state.active_tab == tab;
-    let text = format!("{icon} {label}");
+    let text = egui::RichText::new(format!("{icon} {label}")).color(if is_active {
+        Color32::WHITE
+    } else {
+        Color32::from_rgb(225, 205, 238)
+    });
     if ui.selectable_label(is_active, text).clicked() {
         state.active_tab = tab;
     }
@@ -102,21 +111,25 @@ fn render_category_content(
 
     // 1. Category-wide batch action toolbar
     ui.horizontal(|ui| {
-        ui.label(format!(
-            "{} Category batch:",
-            egui_phosphor::regular::LIGHTNING
-        ));
+        ui.label(
+            egui::RichText::new(format!(
+                "{} Category batch:",
+                egui_phosphor::regular::LIGHTNING
+            ))
+            .color(Color32::from_rgb(255, 130, 188)),
+        );
 
         egui::ComboBox::from_id_salt(format!("batch_donor_{:?}", category))
-            .selected_text("Apply donor to all in category...")
-            .width(210.0)
+            .selected_text("Apply donor to category...")
+            .width(195.0)
+            .truncate()
             .show_ui(ui, |ui| {
                 for (id, name, source) in &donor_candidates {
                     let badge = match source {
                         SkinSource::Lazer => "lazer",
                         SkinSource::Stable => "stable",
                     };
-                    let label = format!("[{badge}] {}", truncate_text(name, 26));
+                    let label = format!("[{badge}] {}", truncate_text(name, 24));
                     if ui.button(label).on_hover_text(name).clicked() {
                         state.batch_set_category(category, id);
                     }
@@ -141,10 +154,13 @@ fn render_category_content(
 
     // 2. Collapsible Subgroups within the active category
     let subgroups = ComponentSubgroup::subgroups_for_category(category);
+    let scroll_w = ui.available_width();
 
     egui::ScrollArea::vertical()
         .id_salt(format!("slots_scroll_{:?}", category))
+        .auto_shrink([false, false])
         .show(ui, |ui| {
+            ui.set_max_width(scroll_w);
             for &subgroup in subgroups {
                 render_subgroup_section(ui, state, textures, audio, subgroup, &donor_candidates);
                 ui.add_space(6.0);
@@ -189,9 +205,11 @@ fn render_subgroup_section(
         egui_phosphor::regular::CARET_RIGHT
     };
 
-    // Subgroup header bar
+    // Subgroup header bar (osu! warm plum surface)
     egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(24, 24, 34))
+        .fill(Color32::from_rgb(33, 22, 41))
+        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(72, 46, 88)))
+        .rounding(7.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let header_label = format!(
@@ -201,7 +219,10 @@ fn render_subgroup_section(
                 if ui
                     .selectable_label(
                         is_expanded,
-                        egui::RichText::new(header_label).strong().size(13.0),
+                        egui::RichText::new(header_label)
+                            .strong()
+                            .size(13.0)
+                            .color(Color32::from_rgb(250, 228, 255)),
                     )
                     .on_hover_text("Click to expand or collapse this sub-group")
                     .clicked()
@@ -222,6 +243,7 @@ fn render_subgroup_section(
                     egui::ComboBox::from_id_salt(format!("subgroup_batch_{:?}", subgroup))
                         .selected_text("Batch sub-group...")
                         .width(135.0)
+                        .truncate()
                         .show_ui(ui, |ui| {
                             for (id, name, source) in donor_candidates {
                                 let badge = match source {
@@ -267,20 +289,20 @@ fn render_slot_row(
         SlotSource::Base => (
             "Base skin".to_string(),
             "Inherited from Base skin (foundation)".to_string(),
-            Color32::from_rgb(175, 175, 195),
+            Color32::from_rgb(205, 190, 218),
         ),
         SlotSource::None => {
             if slot == ComponentSlot::HudLayout {
                 (
                     "Default HUD (None)".to_string(),
                     "Uses default osu!lazer HUD (no custom skin.json)".to_string(),
-                    Color32::from_rgb(255, 185, 60),
+                    Color32::from_rgb(255, 185, 75),
                 )
             } else {
                 (
                     "Disabled (None)".to_string(),
                     "Component is disabled / replaced with blank asset".to_string(),
-                    Color32::from_rgb(255, 185, 60),
+                    Color32::from_rgb(255, 185, 75),
                 )
             }
         }
@@ -290,9 +312,9 @@ fn render_slot_row(
                 .and_then(|f| f.to_str())
                 .unwrap_or("custom");
             (
-                format!("File: {}", truncate_text(name, 14)),
+                format!("File: {}", truncate_text(name, 13)),
                 format!("Custom file from disk:\n{}", path.display()),
-                Color32::from_rgb(100, 205, 255),
+                Color32::from_rgb(125, 215, 255),
             )
         }
         SlotSource::Donor(id) => state
@@ -302,9 +324,9 @@ fn render_slot_row(
             .map(|s| {
                 let badge = s.badge_label();
                 (
-                    format!("[{badge}] {}", truncate_text(&s.name, 14)),
+                    format!("[{badge}] {}", truncate_text(&s.name, 13)),
                     format!("Donor skin: {} (osu!{badge})", s.name),
-                    Color32::from_rgb(85, 239, 148),
+                    Color32::from_rgb(255, 130, 188),
                 )
             })
             .unwrap_or_else(|| {
@@ -319,10 +341,10 @@ fn render_slot_row(
     let mut new_custom_file = None;
 
     egui::Frame::none()
-        .fill(Color32::from_rgb(18, 18, 26))
+        .fill(Color32::from_rgb(24, 17, 30))
         .rounding(6.0)
         .inner_margin(egui::Margin::symmetric(8.0, 5.0))
-        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(38, 38, 54)))
+        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(56, 38, 68)))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Column 1: 28x28 Mini Preview OR Audio Play/Stop Toggle
@@ -333,13 +355,13 @@ fn render_slot_row(
                         let (icon, tint, tip) = if is_playing {
                             (
                                 egui_phosphor::regular::STOP,
-                                Color32::from_rgb(255, 110, 140),
+                                Color32::from_rgb(255, 102, 171),
                                 "Stop audio playback",
                             )
                         } else {
                             (
                                 egui_phosphor::regular::PLAY,
-                                Color32::from_rgb(162, 155, 254),
+                                Color32::from_rgb(255, 150, 200),
                                 "Play sound preview (uses default osu! sound if skin omits this file)",
                             )
                         };
@@ -354,11 +376,11 @@ fn render_slot_row(
                     let (thumb_rect, thumb_resp) =
                         ui.allocate_exact_size(vec2(28.0, 28.0), egui::Sense::click());
                     ui.painter()
-                        .rect_filled(thumb_rect, 4.0, Color32::from_rgb(12, 12, 18));
+                        .rect_filled(thumb_rect, 4.0, Color32::from_rgb(16, 11, 20));
                     ui.painter().rect_stroke(
                         thumb_rect,
                         4.0,
-                        egui::Stroke::new(1.0_f32, Color32::from_rgb(48, 48, 68)),
+                        egui::Stroke::new(1.0_f32, Color32::from_rgb(66, 44, 80)),
                     );
 
                     if slot == ComponentSlot::HudLayout {
@@ -367,13 +389,14 @@ fn render_slot_row(
                             egui::Align2::CENTER_CENTER,
                             egui_phosphor::regular::CODE,
                             egui::FontId::proportional(14.0),
-                            Color32::from_rgb(162, 155, 254),
+                            Color32::from_rgb(255, 130, 188),
                         );
                     } else if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, slot) {
                         let tex_size = tex.size_vec2();
                         let max_dim = tex_size.x.max(tex_size.y).max(1.0);
                         let fit_scale = (24.0 / max_dim).min(2.0);
-                        let draw_size = (tex_size * fit_scale).clamp(vec2(6.0, 6.0), vec2(24.0, 24.0));
+                        let draw_size =
+                            (tex_size * fit_scale).clamp(vec2(6.0, 6.0), vec2(24.0, 24.0));
                         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                         ui.painter().image(
                             tex.id(),
@@ -387,7 +410,7 @@ fn render_slot_row(
                             egui::Align2::CENTER_CENTER,
                             egui_phosphor::regular::IMAGE,
                             egui::FontId::proportional(13.0),
-                            Color32::from_rgb(90, 90, 110),
+                            Color32::from_rgb(115, 95, 130),
                         );
                     }
 
@@ -423,7 +446,7 @@ fn render_slot_row(
                             egui::Label::new(
                                 egui::RichText::new(truncate_text(slot.primary_filename(), 23))
                                     .size(10.0)
-                                    .color(Color32::from_rgb(140, 140, 165)),
+                                    .color(Color32::from_rgb(160, 140, 175)),
                             )
                             .truncate(),
                         );
@@ -442,13 +465,15 @@ fn render_slot_row(
                     full_source_tooltip
                 ));
 
-                // Column 3: Bounded Donor ComboBox
-                let action_buttons_width = 58.0;
-                let combo_width = (ui.available_width() - action_buttons_width).clamp(115.0, 210.0);
+                // Column 3: Bounded Donor ComboBox with .truncate()
+                let action_buttons_width = 62.0;
+                let combo_width =
+                    (ui.available_width() - action_buttons_width).clamp(110.0, 200.0);
 
                 let combo_resp = egui::ComboBox::from_id_salt(format!("slot_combo_{:?}", slot))
                     .selected_text(short_source_text)
                     .width(combo_width)
+                    .truncate()
                     .show_ui(ui, |ui| {
                         if ui
                             .selectable_label(
@@ -502,7 +527,7 @@ fn render_slot_row(
                             ui.label(
                                 egui::RichText::new("(No visible skins have skin.json)")
                                     .size(11.0)
-                                    .color(Color32::from_rgb(140, 140, 160)),
+                                    .color(Color32::from_rgb(160, 140, 175)),
                             );
                         }
 
@@ -515,7 +540,7 @@ fn render_slot_row(
                                 SkinSource::Lazer => "lazer",
                                 SkinSource::Stable => "stable",
                             };
-                            let item_label = format!("[{badge}] {}", truncate_text(name, 26));
+                            let item_label = format!("[{badge}] {}", truncate_text(name, 24));
                             if ui
                                 .selectable_label(is_this_donor, item_label)
                                 .on_hover_text(name)

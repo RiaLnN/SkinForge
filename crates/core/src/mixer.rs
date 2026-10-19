@@ -568,10 +568,96 @@ pub fn export_osk(
     Ok(())
 }
 
-/// Opens an `.osk` skin file with the default system handler (launching it in osu!lazer).
-pub fn launch_osk_file(osk_path: &Path) -> CoreResult<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LaunchTarget {
+    None,
+    #[default]
+    Lazer,
+    Stable,
+}
+
+/// Detects the Wine prefix root directory if `path` resides inside `<prefix>/drive_c/...`
+/// or has an ancestor containing `dosdevices` / `system.reg`.
+pub fn detect_wine_prefix(path: &Path) -> Option<PathBuf> {
+    let mut current = Some(path);
+    while let Some(dir) = current {
+        if dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("drive_c"))
+        {
+            return dir.parent().map(|p| p.to_path_buf());
+        }
+        if dir.join("dosdevices").is_dir() || dir.join("system.reg").is_file() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+/// Converts a POSIX path (e.g. `/home/user/Skin.osk`) into a Wine `Z:` path (`Z:\home\user\Skin.osk`).
+pub fn linux_path_to_wine_path(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    if raw.starts_with('/') {
+        format!("Z:{}", raw.replace('/', "\\"))
+    } else {
+        raw.replace('/', "\\")
+    }
+}
+
+fn find_osu_exe_in_dir(dir: &Path) -> Option<PathBuf> {
+    for candidate in ["osu!.exe", "osu.exe"] {
+        let p = dir.join(candidate);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| n.eq_ignore_ascii_case("osu!.exe"))
+                && entry.path().is_file()
+            {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
+}
+
+/// Opens an `.osk` skin file in the selected game version (`osu!lazer` or `osu!stable`,
+/// including Wine prefix support on Linux).
+pub fn launch_osk_with_target(
+    osk_path: &Path,
+    target: LaunchTarget,
+    stable_root: Option<&Path>,
+) -> CoreResult<()> {
+    match target {
+        LaunchTarget::None => Ok(()),
+        LaunchTarget::Lazer => launch_osk_in_lazer(osk_path),
+        LaunchTarget::Stable => launch_osk_in_stable(osk_path, stable_root),
+    }
+}
+
+fn launch_osk_in_lazer(osk_path: &Path) -> CoreResult<()> {
     #[cfg(target_os = "windows")]
     {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+            for rel in ["osulazer\\current\\osu!.exe", "osulazer\\osu!.exe"] {
+                let exe = local_app_data.join(rel);
+                if exe.is_file()
+                    && std::process::Command::new(&exe)
+                        .arg(osk_path)
+                        .spawn()
+                        .is_ok()
+                {
+                    return Ok(());
+                }
+            }
+        }
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &osk_path.to_string_lossy()])
             .spawn()
@@ -580,16 +666,38 @@ pub fn launch_osk_file(osk_path: &Path) -> CoreResult<()> {
 
     #[cfg(target_os = "linux")]
     {
-        let xdg_res = std::process::Command::new("xdg-open").arg(osk_path).spawn();
+        for bin in ["osu-lazer", "osu!"] {
+            if std::process::Command::new(bin)
+                .arg(osk_path)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
 
-        if xdg_res.is_err() {
-            std::process::Command::new("flatpak")
+        let flatpak_has_lazer = std::process::Command::new("flatpak")
+            .args(["info", "sh.ppy.osu"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+
+        if flatpak_has_lazer
+            && std::process::Command::new("flatpak")
                 .args(["run", "--file-forwarding", "sh.ppy.osu", "@@"])
                 .arg(osk_path)
                 .arg("@@")
                 .spawn()
-                .map_err(crate::error::io_err(osk_path))?;
+                .is_ok()
+        {
+            return Ok(());
         }
+
+        std::process::Command::new("xdg-open")
+            .arg(osk_path)
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
     }
 
     #[cfg(target_os = "macos")]
@@ -601,6 +709,82 @@ pub fn launch_osk_file(osk_path: &Path) -> CoreResult<()> {
     }
 
     Ok(())
+}
+
+fn launch_osk_in_stable(osk_path: &Path, stable_root: Option<&Path>) -> CoreResult<()> {
+    let resolved_root = stable_root
+        .map(|p| p.to_path_buf())
+        .or_else(|| crate::paths::resolve_stable_root().map(|inst| inst.root));
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(root) = &resolved_root {
+            if let Some(exe) = find_osu_exe_in_dir(root) {
+                std::process::Command::new(&exe)
+                    .current_dir(root)
+                    .arg(osk_path)
+                    .spawn()
+                    .map_err(crate::error::io_err(&exe))?;
+                return Ok(());
+            }
+        }
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &osk_path.to_string_lossy()])
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let abs_osk = std::fs::canonicalize(osk_path).unwrap_or_else(|_| osk_path.to_path_buf());
+        let wine_osk_arg = linux_path_to_wine_path(&abs_osk);
+
+        if let Some(root) = &resolved_root {
+            if let Some(exe) = find_osu_exe_in_dir(root) {
+                let mut cmd = std::process::Command::new("wine");
+                cmd.current_dir(root).arg(&exe).arg(&wine_osk_arg);
+                if let Some(prefix) = detect_wine_prefix(root) {
+                    cmd.env("WINEPREFIX", prefix);
+                }
+                if cmd.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Try common Linux osu!stable Wine wrappers if `osu!.exe` wasn't directly in stable_root
+        for wrapper in ["osu-wine", "osu-winello"] {
+            if std::process::Command::new(wrapper)
+                .arg(&abs_osk)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+
+        // Fallback to system handler
+        std::process::Command::new("xdg-open")
+            .arg(&abs_osk)
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = resolved_root;
+        std::process::Command::new("open")
+            .arg(osk_path)
+            .spawn()
+            .map_err(crate::error::io_err(osk_path))?;
+    }
+
+    Ok(())
+}
+
+/// Opens an `.osk` skin file with the default `osu!lazer` handler.
+pub fn launch_osk_file(osk_path: &Path) -> CoreResult<()> {
+    launch_osk_with_target(osk_path, LaunchTarget::Lazer, None)
 }
 
 #[cfg(test)]
@@ -1157,5 +1341,18 @@ mod tests {
         assert_eq!(combo_bytes, b"donor-default-1");
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn wine_prefix_and_path_conversion_works() {
+        let fake_stable = PathBuf::from("/home/user/.wine/drive_c/Program Files/osu!");
+        assert_eq!(
+            detect_wine_prefix(&fake_stable),
+            Some(PathBuf::from("/home/user/.wine"))
+        );
+        assert_eq!(
+            linux_path_to_wine_path(Path::new("/home/user/exports/Mixed Skin.osk")),
+            "Z:\\home\\user\\exports\\Mixed Skin.osk"
+        );
     }
 }

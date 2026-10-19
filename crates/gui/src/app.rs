@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::egui::{self, Color32, Rounding, Stroke};
 use skinforge_core::bridge::Skin;
 use skinforge_core::paths::{LazerInstallation, StableInstallation};
 use std::sync::mpsc::{Receiver, Sender};
@@ -24,28 +24,79 @@ pub struct MixerApp {
     pub rx: Receiver<AppEvent>,
 }
 
+/// Applies an osu!-inspired warm dark-plum & pink theme across the application.
+fn apply_osu_pink_theme(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    style.interaction.selectable_labels = false;
+
+    let mut visuals = egui::Visuals::dark();
+
+    // Base surfaces with subtle osu! warm dark-magenta/plum undertone
+    visuals.panel_fill = Color32::from_rgb(22, 16, 27);
+    visuals.window_fill = Color32::from_rgb(27, 19, 33);
+    visuals.extreme_bg_color = Color32::from_rgb(15, 10, 19);
+    visuals.faint_bg_color = Color32::from_rgb(33, 23, 41);
+    visuals.window_stroke = Stroke::new(1.0_f32, Color32::from_rgb(76, 48, 92));
+    visuals.window_rounding = Rounding::same(8.0);
+
+    // Non-interactive frames, separators & labels
+    visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(29, 20, 36);
+    visuals.widgets.noninteractive.weak_bg_fill = Color32::from_rgb(29, 20, 36);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(64, 42, 78));
+    visuals.widgets.noninteractive.fg_stroke =
+        Stroke::new(1.0_f32, Color32::from_rgb(240, 226, 246));
+    visuals.widgets.noninteractive.rounding = Rounding::same(6.0);
+
+    // Inactive buttons, ComboBoxes & inputs
+    visuals.widgets.inactive.bg_fill = Color32::from_rgb(42, 28, 52);
+    visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(38, 25, 47);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(82, 52, 98));
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(238, 222, 245));
+    visuals.widgets.inactive.rounding = Rounding::same(6.0);
+
+    // Hovered widgets: warm rose-plum fill + signature osu! pink border (#ff66ab)
+    visuals.widgets.hovered.bg_fill = Color32::from_rgb(72, 38, 76);
+    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(62, 33, 66);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 102, 171));
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    visuals.widgets.hovered.rounding = Rounding::same(6.0);
+
+    // Active / pressed widgets
+    visuals.widgets.active.bg_fill = Color32::from_rgb(228, 64, 142);
+    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(205, 56, 128);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 165, 210));
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    visuals.widgets.active.rounding = Rounding::same(6.0);
+
+    // Open ComboBox / menu header
+    visuals.widgets.open.bg_fill = Color32::from_rgb(58, 32, 66);
+    visuals.widgets.open.weak_bg_fill = Color32::from_rgb(52, 28, 60);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 102, 171));
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    visuals.widgets.open.rounding = Rounding::same(6.0);
+
+    // Selected items (tabs, active skin, checkboxes, sliders)
+    visuals.selection.bg_fill = Color32::from_rgb(198, 52, 122);
+    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 210, 232));
+
+    style.visuals = visuals;
+    ctx.set_style(style);
+}
+
 impl MixerApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         worker_tx: Sender<WorkerTask>,
         rx: Receiver<AppEvent>,
-        demo_mode: bool,
     ) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
-        cc.egui_ctx.style_mut(|style| {
-            style.interaction.selectable_labels = false;
-        });
-
-        let mut state = AppState::default();
-        if demo_mode {
-            state.enable_demo_mode();
-        }
+        apply_osu_pink_theme(&cc.egui_ctx);
 
         Self {
-            state,
+            state: AppState::default(),
             textures: TextureCache::new(),
             audio: AudioPlayer::new(),
             worker_tx,
@@ -90,8 +141,9 @@ impl MixerApp {
                 combo_colours: self.state.combo_colours.clone(),
                 installed_skins: self.state.installed_skins.clone(),
                 files_dir: self.state.files_dir.clone(),
+                stable_root: self.state.stable_root.clone(),
                 output_path,
-                open_after_export: self.state.open_after_export,
+                launch_target: self.state.launch_target,
                 extended_ini: self.state.extended_ini.clone(),
             };
             let _ = self.worker_tx.send(WorkerTask::ExportOsk(Box::new(task)));
@@ -132,7 +184,11 @@ impl eframe::App for MixerApp {
 
         egui::TopBottomPanel::top("top_status_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("SkinForge");
+                ui.heading(
+                    egui::RichText::new("SkinForge")
+                        .strong()
+                        .color(Color32::from_rgb(255, 115, 180)),
+                );
 
                 if ui
                     .button(format!(
@@ -149,36 +205,15 @@ impl eframe::App for MixerApp {
                     });
                 }
 
-                ui.separator();
-
-                let demo_label = if self.state.demo_mode {
-                    format!("{} Clean Names: ON", egui_phosphor::regular::SPARKLE)
-                } else {
-                    format!("{} Clean Names: OFF", egui_phosphor::regular::SPARKLE)
-                };
-                if ui
-                    .selectable_label(self.state.demo_mode, demo_label)
-                    .on_hover_text(
-                        "Mask skin names with clean canonical names for screenshots/demos",
-                    )
-                    .clicked()
-                {
-                    if self.state.demo_mode {
-                        self.state.disable_demo_mode();
-                    } else {
-                        self.state.enable_demo_mode();
-                    }
-                }
-
                 if self.state.is_working {
                     ui.spinner();
                     ui.label("Processing...");
                 }
                 if let Some((msg, is_err)) = &self.state.status_message {
                     let color = if *is_err {
-                        egui::Color32::from_rgb(255, 100, 100)
+                        Color32::from_rgb(255, 110, 130)
                     } else {
-                        egui::Color32::from_rgb(56, 239, 125)
+                        Color32::from_rgb(100, 240, 160)
                     };
                     ui.colored_label(color, msg);
                 }
@@ -191,9 +226,9 @@ impl eframe::App for MixerApp {
                             egui_phosphor::regular::STOP
                         ))
                         .color(if playing {
-                            egui::Color32::from_rgb(255, 110, 140)
+                            Color32::from_rgb(255, 102, 171)
                         } else {
-                            egui::Color32::GRAY
+                            Color32::GRAY
                         });
                         if ui
                             .button(stop_text)
@@ -215,21 +250,24 @@ impl eframe::App for MixerApp {
                     {
                         self.audio.set_volume(vol_pct / 100.0);
                     }
-                    ui.label(egui_phosphor::regular::SPEAKER_HIGH);
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::SPEAKER_HIGH)
+                            .color(Color32::from_rgb(255, 130, 188)),
+                    );
                 });
             });
         });
 
         egui::SidePanel::left("sidebar_panel")
-            .default_width(285.0)
-            .width_range(250.0..=360.0)
+            .default_width(280.0)
+            .width_range(245.0..=340.0)
             .show(ctx, |ui| {
                 sidebar::render_sidebar(ui, &mut self.state, &self.worker_tx);
             });
 
         egui::SidePanel::right("preview_panel")
             .default_width(370.0)
-            .width_range(310.0..=460.0)
+            .width_range(310.0..=450.0)
             .show(ctx, |ui| {
                 let action =
                     preview::render_preview(ui, &mut self.state, &mut self.textures, &self.audio);

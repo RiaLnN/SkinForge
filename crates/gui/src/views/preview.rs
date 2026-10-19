@@ -1,6 +1,6 @@
 use eframe::egui::{self, pos2, vec2, Color32, Rect};
 use skinforge_core::categorize::ComponentSlot;
-use skinforge_core::mixer::SlotSource;
+use skinforge_core::mixer::{LaunchTarget, SlotSource};
 
 use crate::audio::AudioPlayer;
 use crate::state::{truncate_text, AppState, HitJudgementKind};
@@ -21,18 +21,25 @@ pub fn render_preview(
     audio: &AudioPlayer,
 ) -> PreviewAction {
     let mut action = PreviewAction::None;
+    let panel_width = ui.available_width();
+    ui.set_max_width(panel_width);
 
     egui::ScrollArea::vertical()
         .id_salt("preview_panel_scroll")
+        .auto_shrink([false, false])
         .show(ui, |ui| {
+            ui.set_max_width(panel_width);
             ui.vertical(|ui| {
-                ui.heading(format!(
-                    "{} 3. Preview & Export",
-                    egui_phosphor::regular::EYE
-                ));
+                ui.heading(
+                    egui::RichText::new(format!(
+                        "{} 3. Preview & Export",
+                        egui_phosphor::regular::EYE
+                    ))
+                    .color(Color32::from_rgb(255, 130, 188)),
+                );
                 ui.add_space(6.0);
 
-                // 1. Interactive playfield canvas (with Scorebar + Hit Judgements on click)
+                // 1. Interactive playfield canvas (Hitcircle + ApproachCircle + Cursor + Natural Hit Judgements on click)
                 if let Some(act) = render_playfield_canvas(ui, state, textures) {
                     action = act;
                 }
@@ -54,7 +61,8 @@ pub fn render_preview(
                             egui_phosphor::regular::SPEAKER_SIMPLE_HIGH
                         ))
                         .strong()
-                        .size(12.5),
+                        .size(12.5)
+                        .color(Color32::from_rgb(245, 220, 252)),
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -67,7 +75,7 @@ pub fn render_preview(
                                 ))
                                 .size(11.5)
                                 .color(if playing {
-                                    Color32::from_rgb(255, 110, 140)
+                                    Color32::from_rgb(255, 102, 171)
                                 } else {
                                     Color32::GRAY
                                 }),
@@ -86,7 +94,7 @@ pub fn render_preview(
                             .suffix("%")
                             .show_value(true);
                         if ui
-                            .add_sized([110.0, 18.0], slider)
+                            .add_sized([105.0, 18.0], slider)
                             .on_hover_text("Audio preview volume")
                             .changed()
                         {
@@ -116,7 +124,7 @@ pub fn render_preview(
                         };
                         let text = if is_playing {
                             egui::RichText::new(format!("{icon} {label}"))
-                                .color(Color32::from_rgb(255, 110, 140))
+                                .color(Color32::from_rgb(255, 102, 171))
                         } else {
                             egui::RichText::new(format!("{icon} {label}"))
                         };
@@ -144,12 +152,90 @@ pub fn render_preview(
 
                 ui.add_space(8.0);
 
-                // 5. Export options & primary Export .osk button
-                ui.checkbox(
-                    &mut state.open_after_export,
-                    "Open exported .osk file in osu! automatically",
+                // 5. Game version selector for auto-opening the exported .osk file
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} Auto-open exported .osk in:",
+                        egui_phosphor::regular::ROCKET_LAUNCH
+                    ))
+                    .strong()
+                    .size(12.0)
+                    .color(Color32::from_rgb(245, 220, 252)),
                 );
-                ui.add_space(6.0);
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    let is_lazer = state.launch_target == LaunchTarget::Lazer;
+                    if ui
+                        .selectable_label(
+                            is_lazer,
+                            egui::RichText::new(format!(
+                                "{} osu!lazer",
+                                if is_lazer {
+                                    egui_phosphor::regular::RADIO_BUTTON
+                                } else {
+                                    egui_phosphor::regular::CIRCLE
+                                }
+                            ))
+                            .color(if is_lazer {
+                                Color32::WHITE
+                            } else {
+                                Color32::from_rgb(195, 185, 245)
+                            }),
+                        )
+                        .on_hover_text("Automatically launch the exported .osk package in osu!lazer")
+                        .clicked()
+                    {
+                        state.launch_target = LaunchTarget::Lazer;
+                    }
+
+                    let is_stable = state.launch_target == LaunchTarget::Stable;
+                    if ui
+                        .selectable_label(
+                            is_stable,
+                            egui::RichText::new(format!(
+                                "{} osu!stable",
+                                if is_stable {
+                                    egui_phosphor::regular::RADIO_BUTTON
+                                } else {
+                                    egui_phosphor::regular::CIRCLE
+                                }
+                            ))
+                            .color(if is_stable {
+                                Color32::WHITE
+                            } else {
+                                Color32::from_rgb(255, 145, 198)
+                            }),
+                        )
+                        .on_hover_text(
+                            "Automatically open the exported .osk package in osu!stable (uses Wine automatically on Linux)",
+                        )
+                        .clicked()
+                    {
+                        state.launch_target = LaunchTarget::Stable;
+                    }
+
+                    let is_none = state.launch_target == LaunchTarget::None;
+                    if ui
+                        .selectable_label(
+                            is_none,
+                            egui::RichText::new(format!(
+                                "{} Save only",
+                                if is_none {
+                                    egui_phosphor::regular::RADIO_BUTTON
+                                } else {
+                                    egui_phosphor::regular::CIRCLE
+                                }
+                            )),
+                        )
+                        .on_hover_text("Save the .osk file to disk without launching osu!")
+                        .clicked()
+                    {
+                        state.launch_target = LaunchTarget::None;
+                    }
+                });
+
+                ui.add_space(8.0);
 
                 let can_export = !state.is_working && state.base_skin().is_some();
 
@@ -164,8 +250,10 @@ pub fn render_preview(
                             .strong()
                             .color(Color32::WHITE),
                     )
-                    .fill(Color32::from_rgb(95, 75, 220))
-                    .min_size(vec2(ui.available_width(), 40.0));
+                    .fill(Color32::from_rgb(228, 64, 142))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 138, 195)))
+                    .rounding(8.0)
+                    .min_size(vec2(ui.available_width(), 42.0));
 
                     if ui
                         .add(btn)
@@ -200,55 +288,22 @@ fn render_playfield_canvas(
     state: &mut AppState,
     textures: &mut TextureCache,
 ) -> Option<PreviewAction> {
-    let canvas_size = vec2(ui.available_width().max(260.0), 215.0);
+    let canvas_size = vec2(ui.available_width().max(240.0), 210.0);
     let (response, painter) = ui.allocate_painter(canvas_size, egui::Sense::click_and_drag());
     let rect = response.rect;
 
-    // Canvas background
-    painter.rect_filled(rect, 8.0, Color32::from_rgb(16, 16, 24));
+    // Canvas background (deep osu! plum playfield)
+    painter.rect_filled(rect, 8.0, Color32::from_rgb(16, 11, 21));
     painter.rect_stroke(
         rect,
         8.0,
-        egui::Stroke::new(1.0_f32, Color32::from_rgb(45, 45, 62)),
+        egui::Stroke::new(1.0_f32, Color32::from_rgb(68, 44, 84)),
     );
 
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
 
-    // Top HUD: Scorebar / Health Bar (`scorebar-bg`, `scorebar-colour`, `scorebar-ki`)
-    let bar_rect = Rect::from_min_size(
-        rect.min + vec2(12.0, 10.0),
-        vec2((rect.width() * 0.58).min(210.0), 14.0),
-    );
-    if let Some(bg_tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::ScorebarBg) {
-        painter.image(bg_tex.id(), bar_rect, uv, Color32::WHITE);
-    } else {
-        painter.rect_filled(bar_rect, 4.0, Color32::from_rgb(32, 32, 48));
-    }
-
-    let fill_rect = Rect::from_min_size(
-        bar_rect.min + vec2(2.0, 2.0),
-        vec2((bar_rect.width() - 4.0) * 0.82, bar_rect.height() - 4.0),
-    );
-    if let Some(col_tex) =
-        textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::ScorebarColour)
-    {
-        painter.image(col_tex.id(), fill_rect, uv, Color32::WHITE);
-    } else {
-        painter.rect_filled(fill_rect, 3.0, Color32::from_rgb(86, 225, 145));
-    }
-
-    let ki_center = pos2(fill_rect.max.x, fill_rect.center().y);
-    if let Some(ki_tex) = textures.get_or_load_slot(ui.ctx(), state, ComponentSlot::ScorebarKi) {
-        painter.image(
-            ki_tex.id(),
-            Rect::from_center_size(ki_center, vec2(18.0, 18.0)),
-            uv,
-            Color32::WHITE,
-        );
-    }
-
-    let center = rect.center() + vec2(-24.0, 8.0);
-    let circle_radius = 40.0;
+    let center = rect.center() + vec2(-22.0, 2.0);
+    let circle_radius = 42.0;
 
     let time = ui.input(|i| i.time);
 
@@ -299,7 +354,7 @@ fn render_playfield_canvas(
             approach_radius,
             egui::Stroke::new(
                 2.5_f32,
-                Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
+                Color32::from_rgba_unmultiplied(255, 195, 225, alpha),
             ),
         );
     }
@@ -379,7 +434,7 @@ fn render_playfield_canvas(
                 ),
             );
 
-            // Pop-in scale (1.25 -> 1.0) and slight upward drift
+            // Pop-in scale (1.28 -> 1.0) and slight upward drift
             let pop_scale = if progress < 0.2 {
                 1.0 + (1.0 - progress / 0.2) * 0.28
             } else {
@@ -450,7 +505,7 @@ fn render_playfield_canvas(
                     painter.circle_filled(
                         trail_pos,
                         9.0 * scale,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (alpha as f32 * 0.4) as u8),
+                        Color32::from_rgba_unmultiplied(255, 165, 210, (alpha as f32 * 0.45) as u8),
                     );
                 }
             }
@@ -466,7 +521,7 @@ fn render_playfield_canvas(
             Color32::WHITE,
         );
     } else {
-        painter.circle_filled(cursor_pos, 14.0, Color32::from_rgb(255, 190, 40));
+        painter.circle_filled(cursor_pos, 14.0, Color32::from_rgb(255, 102, 171));
         painter.circle_stroke(cursor_pos, 14.0, egui::Stroke::new(2.0_f32, Color32::WHITE));
     }
 
@@ -500,33 +555,35 @@ fn render_element_inspector(
     let source_desc = match source {
         SlotSource::Base => state
             .base_skin()
-            .map(|s| format!("Base: [{}] {}", s.badge_label(), truncate_text(&s.name, 22)))
+            .map(|s| format!("Base: [{}] {}", s.badge_label(), truncate_text(&s.name, 20)))
             .unwrap_or_else(|| "Base skin".to_string()),
         SlotSource::None => "Disabled (None)".to_string(),
         SlotSource::CustomFile(p) => {
             let fname = p.file_name().and_then(|f| f.to_str()).unwrap_or("custom");
-            format!("Custom: {}", truncate_text(fname, 22))
+            format!("Custom: {}", truncate_text(fname, 20))
         }
         SlotSource::Donor(id) => state
             .installed_skins
             .iter()
             .find(|s| &s.id == id)
-            .map(|s| format!("Donor: [{}] {}", s.badge_label(), truncate_text(&s.name, 22)))
+            .map(|s| format!("Donor: [{}] {}", s.badge_label(), truncate_text(&s.name, 20)))
             .unwrap_or_else(|| "Donor skin".to_string()),
     };
 
     egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(20, 20, 30))
+        .fill(Color32::from_rgb(29, 20, 36))
+        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(68, 44, 84)))
+        .rounding(7.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (box_rect, _) =
                     ui.allocate_exact_size(vec2(52.0, 52.0), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(box_rect, 6.0, Color32::from_rgb(12, 12, 18));
+                    .rect_filled(box_rect, 6.0, Color32::from_rgb(16, 11, 21));
                 ui.painter().rect_stroke(
                     box_rect,
                     6.0,
-                    egui::Stroke::new(1.0_f32, Color32::from_rgb(48, 48, 68)),
+                    egui::Stroke::new(1.0_f32, Color32::from_rgb(68, 44, 84)),
                 );
 
                 let mut dims_text = "No texture in skin".to_string();
@@ -549,7 +606,7 @@ fn render_element_inspector(
                         egui::Align2::CENTER_CENTER,
                         egui_phosphor::regular::IMAGE,
                         egui::FontId::proportional(18.0),
-                        Color32::from_rgb(90, 90, 115),
+                        Color32::from_rgb(115, 95, 130),
                     );
                 }
 
@@ -563,7 +620,8 @@ fn render_element_inspector(
                             slot.display_name()
                         ))
                         .strong()
-                        .size(12.5),
+                        .size(12.5)
+                        .color(Color32::from_rgb(250, 228, 255)),
                     );
                     ui.label(
                         egui::RichText::new(format!(
@@ -572,12 +630,12 @@ fn render_element_inspector(
                             dims_text
                         ))
                         .size(11.0)
-                        .color(Color32::from_rgb(150, 150, 175)),
+                        .color(Color32::from_rgb(180, 160, 198)),
                     );
                     ui.label(
                         egui::RichText::new(source_desc)
                             .size(11.0)
-                            .color(Color32::from_rgb(162, 155, 254)),
+                            .color(Color32::from_rgb(255, 130, 188)),
                     );
                 });
             });
@@ -597,29 +655,34 @@ fn render_mix_summary(ui: &mut egui::Ui, state: &AppState) {
         }
     }
 
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} Mix Summary ({} slots):",
-                    egui_phosphor::regular::CHART_PIE,
-                    ComponentSlot::all().len()
-                ))
-                .strong()
-                .size(12.5),
-            );
-            ui.add_space(4.0);
+    egui::Frame::group(ui.style())
+        .fill(Color32::from_rgb(29, 20, 36))
+        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(68, 44, 84)))
+        .rounding(7.0)
+        .show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} Mix Summary ({} slots):",
+                        egui_phosphor::regular::CHART_PIE,
+                        ComponentSlot::all().len()
+                    ))
+                    .strong()
+                    .size(12.5)
+                    .color(Color32::from_rgb(250, 228, 255)),
+                );
+                ui.add_space(4.0);
 
-            ui.horizontal(|ui| {
-                ui.label(format!("{} Base:", egui_phosphor::regular::FOLDER));
-                ui.colored_label(Color32::from_rgb(180, 180, 200), format!("{base_count}"));
-                ui.separator();
-                ui.label(format!("{} Replaced:", egui_phosphor::regular::SWAP));
-                ui.colored_label(Color32::from_rgb(56, 239, 125), format!("{donor_count}"));
-                ui.separator();
-                ui.label(format!("{} Disabled:", egui_phosphor::regular::PROHIBIT));
-                ui.colored_label(Color32::from_rgb(255, 180, 50), format!("{none_count}"));
+                ui.horizontal(|ui| {
+                    ui.label(format!("{} Base:", egui_phosphor::regular::FOLDER));
+                    ui.colored_label(Color32::from_rgb(210, 195, 225), format!("{base_count}"));
+                    ui.separator();
+                    ui.label(format!("{} Replaced:", egui_phosphor::regular::SWAP));
+                    ui.colored_label(Color32::from_rgb(255, 130, 188), format!("{donor_count}"));
+                    ui.separator();
+                    ui.label(format!("{} Disabled:", egui_phosphor::regular::PROHIBIT));
+                    ui.colored_label(Color32::from_rgb(255, 185, 75), format!("{none_count}"));
+                });
             });
         });
-    });
 }
