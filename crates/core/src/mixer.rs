@@ -493,6 +493,13 @@ pub fn export_osk(
 
                         for df in donor_files {
                             if let Some(disk_path) = donor_skin.resolve_file_path(files_dir, df) {
+                                if slot == ComponentSlot::ComboNumbers {
+                                    let lower_name = df.filename.to_ascii_lowercase();
+                                    if let Some(rest) = lower_name.strip_prefix("combo-") {
+                                        file_map
+                                            .insert(format!("default-{rest}"), disk_path.clone());
+                                    }
+                                }
                                 file_map.insert(df.filename.clone(), disk_path);
                             }
                         }
