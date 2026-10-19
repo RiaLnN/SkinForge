@@ -1,29 +1,28 @@
 # Architecture
 
-SkinForge reads and patches osu!lazer's Realm database through a small C# bridge, and does everything else (path detection, mixing, preview, UI) in Rust.
+SkinForge discovers skins from both **osu!lazer** (via a lightweight C# Realm Dynamic API bridge) and **osu!stable** (by scanning filesystem `Skins/` directories), and performs all categorization, cross-version mixing, interactive preview rendering, audio synthesis, and `.osk` packaging in Rust.
 
 ## Data flow
 
 ```text
-osu!lazer client.realm ──(realm-bridge, C# .NET 8)──> JSON metadata
-                                                            │
-                                                     (skinforge-core, Rust)
-                                                            │
-                                            ┌───────────────┴───────────────┐
-                                            ▼                               ▼
-                                   (skinforge desktop GUI)        (skinforge-cli)
-                                   egui + live canvas             headless CLI
+osu!lazer client.realm ──(realm-bridge, C# .NET 8)──> Lazer Skins (SHA-256 storage) ┐
+                                                                                    ├──> (skinforge-core, Rust)
+osu!stable Skins/      ──(filesystem scanner)───────> Stable Skins (folder paths)   ┘             │
+                                                                                  ┌───────────────┴───────────────┐
+                                                                                  ▼                               ▼
+                                                                         (skinforge desktop GUI)        (skinforge-cli)
+                                                                         egui + live canvas + audio     headless CLI
 ```
 
-Why a C# bridge: Realm's Dynamic API, which lets us read and patch lazer's database without compiling against lazer's internal classes, is available from .NET (tested with Realm .NET SDK 20.1.0 on osu!lazer database schema version 52). The Rust side calls the bridge as a subprocess and exchanges JSON.
+Why a C# bridge for `osu!lazer`: Realm's Dynamic API lets SkinForge read `osu!lazer`'s `client.realm` database without compiling against lazer's internal C# classes (tested with Realm .NET SDK 20.1.0 on osu!lazer database schema v52). Meanwhile, `osu!stable` skins are scanned directly in Rust from standard `Skins/` directories on Windows and Linux (including Wine/Lutris prefixes).
 
 ## Repository structure
 
 ```text
 SkinForge/
 ├── crates/
-│   ├── core/                   # Rust core library & CLI (paths, process guard, mixer, parser)
-│   └── gui/                    # Desktop GUI (egui + eframe, live canvas, audio preview)
+│   ├── core/                   # Rust core library & CLI (lazer/stable discovery, categorization, mixer, parser)
+│   └── gui/                    # Desktop GUI (egui + eframe, live playfield canvas, element inspector, audio preview)
 ├── realm-bridge/               # C# Realm Dynamic API bridge (.NET 8)
 ├── packaging/                  # Bundled release files & instructions
 ├── .github/workflows/          # CI and multi-platform release workflows
@@ -36,33 +35,32 @@ SkinForge/
 
 | Module | Responsibility |
 | --- | --- |
-| `paths.rs` | Detects lazer's data directory (`client.realm`, `files/`) on Windows and Linux, including Flatpak |
-| `process_guard.rs` | Detects a running osu! to prevent concurrent Realm writes |
+| `paths.rs` | Detects `osu!lazer` (`client.realm`, `files/`) and `osu!stable` (`Skins/`) directories across Windows and Linux, and scans `stable` skin folders into `Skin` structs |
+| `bridge.rs` | Defines `Skin`, `SkinSource` (`Lazer` / `Stable`), `Skin::resolve_file_path`, and the subprocess wrapper around `realm-bridge` |
+| `categorize.rs` | Maps skin files and sprites to 5 top-level categories (`Cursor`, `Gameplay`, `Hud`, `Interface`, `Audio`), 15 collapsible `ComponentSubgroup`s, and 42 `ComponentSlot` variants |
+| `mixer.rs` | Cross-version skin mixing (`export_osk`), `@2x` retina sprite pruning, `combo-*` / `default-*` digit alias normalization, and `.osk` ZIP archive generation |
+| `skin_ini.rs` | Parses, modifies, and serializes `skin.ini` sections (`[General]`, `[Colours]`, `[Fonts]`) with BOM and comment handling |
 | `storage.rs` | Streaming SHA-256 and deduplicated file placement matching lazer's layout (`files/<h0>/<h0h1>/<hash>`) |
-| `mixer.rs` | Manifest-based skin mixing that references existing file hashes instead of copying bytes |
-| `bridge.rs` | Wrapper around the C# bridge, with a timestamped `client.realm` backup before any write |
-| `skin_ini.rs` | Reads, modifies and merges `skin.ini` sections and combo colours |
-| `categorize.rs` | Maps skin files and sprites to canonical slots: Cursor, Gameplay, Audio, Interface |
+| `process_guard.rs` | Detects running `osu!` processes for CLI/database utilities |
 
-## Zero-copy mixing
+## `skinforge-gui` modules
 
-lazer identifies files by SHA-256 hash in `files/`. Mixing a cursor from skin A into skin B only adds a reference to the existing hash in B's file list; no bytes are copied. Files that do not exist yet (for example from an external donor folder) are hashed and placed into `files/` first.
+| Module | Responsibility |
+| --- | --- |
+| `app.rs` | Top-level `eframe::App` state loop, `.osk` save file dialog dispatch, and top status bar |
+| `state.rs` | `AppState`, version filter toggles (`show_lazer_skins`, `show_stable_skins`), UTF-8 safe `truncate_text`, subgroup expand/collapse state, and `HitJudgementKind` timing logic |
+| `textures.rs` | Dual-source `TextureCache` resolving sprites from both `osu!lazer` hashed storage (`files_dir`) and `osu!stable` skin directories (`root_dir`) |
+| `audio.rs` | Stateful `AudioPlayer` retaining an active `rodio::Sink` for instant Play/Stop toggling, volume control, and in-memory PCM WAV synthesis for default `osu!` fallback sounds |
+| `views/sidebar.rs` | Unified `[lazer]` / `[stable]` skin list, version filter buttons, custom folder pickers, and search bar |
+| `views/categories.rs` | 6-tab component editor with collapsible sub-groups, subgroup batch selectors, mini-thumbnails, and deterministic 4-column slot rows |
+| `views/preview.rs` | Interactive 60 fps playfield canvas with Scorebar HUD, natural `300`/`100`/`50`/`Miss` hit judgements on click, Selected Element Inspector, and `.osk` export trigger |
+| `views/colors.rs` | Combo colour palette editor and advanced `[Colours]` overrides |
 
-## Integration modes
+## Cross-version `.osk` export
 
-SkinForge supports two workflows for deploying mixed skins into osu!lazer:
+`mixer::export_osk` resolves every file in the mixed skin via `Skin::resolve_file_path(files_dir, skin_file)`:
+- For `SkinSource::Lazer`, bytes are read from `<lazer_root>/files/<h0>/<h0h1>/<sha256>`.
+- For `SkinSource::Stable`, bytes are read from `<skin_root_dir>/<filename>`.
+- For `SlotSource::CustomFile(path)`, bytes are read directly from disk.
 
-1. **Standard `.osk` Packaging (Recommended)**:
-   - Implemented in `mixer::export_osk` and `mixer::launch_osk_file`.
-   - Packages all resolved sprites, sounds, and generated `skin.ini` into a standard ZIP archive located in `<lazer_root>/exports/<skin_name>.osk`.
-   - Automatically forwards the `.osk` file to osu!lazer via `xdg-open` / Flatpak file forwarding on Linux, `cmd /c start` on Windows, or `open` on macOS.
-   - **Safety**: 100% database-safe. Never touches `client.realm` directly, eliminating any risk of database corruption or file locks even while osu!lazer is active.
-
-2. **Direct `client.realm` Injection (Zero-Copy)**:
-   - Implemented in `mixer::build_patch` and `bridge::apply_patch`.
-   - Modifies `client.realm` directly by registering the new skin manifest with references to existing SHA-256 hashes in `files/`.
-   - Avoids file duplication and applies instantly without an import cycle.
-   - **Safety**:
-     1. Strict process guard check (`process_guard::ensure_not_running`): refuses to write while osu!lazer is running to avoid database corruption or lock collisions.
-     2. Automatic backup of `client.realm` (plus `.lock`, `.note`, and `.management` if present) to `client.realm.bak-<timestamp>`.
-     3. Atomic transaction execution via the Realm .NET dynamic bridge.
+All resolved assets and the generated `skin.ini` are packaged into a standard `.osk` archive at the user's chosen destination and optionally launched in `osu!` via the OS file handler.
