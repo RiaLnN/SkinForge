@@ -10,9 +10,9 @@ pub mod worker;
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1180.0, 720.0])
-            .with_min_inner_size([960.0, 600.0])
-            .with_title("SkinForge — osu!lazer Skin Mixer"),
+            .with_inner_size([1240.0, 760.0])
+            .with_min_inner_size([1024.0, 620.0])
+            .with_title("SkinForge — osu!lazer & osu!stable Skin Mixer"),
         ..Default::default()
     };
 
@@ -25,9 +25,11 @@ fn main() -> eframe::Result<()> {
         worker::run_worker(worker_rx, worker_event_tx);
     });
 
-    // Send initial tasks to check running processes and load skins
-    let _ = worker_tx.send(worker::WorkerTask::CheckProcess);
-    let _ = worker_tx.send(worker::WorkerTask::LoadSkins);
+    // Send initial task to load skins from osu!lazer and osu!stable
+    let _ = worker_tx.send(worker::WorkerTask::LoadSkins {
+        custom_lazer_root: None,
+        custom_stable_root: None,
+    });
 
     let args: Vec<String> = std::env::args().collect();
     let demo_mode = args.iter().any(|arg| arg == "--demo" || arg == "-d")

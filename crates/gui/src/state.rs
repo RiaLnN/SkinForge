@@ -13,13 +13,6 @@ pub enum ActiveTab {
     Colors,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BuildMethod {
-    #[default]
-    OskPackage,
-    DirectRealm,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitJudgementKind {
     Hit300,
@@ -86,12 +79,9 @@ pub struct AppState {
     pub new_skin_creator: String,
     pub slot_sources: HashMap<ComponentSlot, SlotSource>,
     pub combo_colours: Vec<(u8, u8, u8)>,
-    pub auto_backup: bool,
     pub active_tab: ActiveTab,
     pub status_message: Option<(String, bool)>,
     pub is_working: bool,
-    pub is_game_running: bool,
-    pub set_active_on_build: bool,
     pub open_after_export: bool,
     pub show_advanced_cursor: bool,
     pub show_advanced_gameplay: bool,
@@ -107,8 +97,6 @@ pub struct AppState {
     pub expanded_subgroups: HashSet<ComponentSubgroup>,
     pub demo_mode: bool,
     pub real_installed_skins: Vec<Skin>,
-    pub show_build_dialog: bool,
-    pub selected_build_method: BuildMethod,
 }
 
 impl Default for AppState {
@@ -151,12 +139,9 @@ impl Default for AppState {
                 (136, 255, 68),  // #88ff44
                 (255, 170, 34),  // #ffaa22
             ],
-            auto_backup: true,
             active_tab: ActiveTab::Category(ComponentCategory::Cursor),
             status_message: None,
             is_working: false,
-            is_game_running: false,
-            set_active_on_build: true,
             open_after_export: true,
             show_advanced_cursor: false,
             show_advanced_gameplay: false,
@@ -172,8 +157,6 @@ impl Default for AppState {
             expanded_subgroups,
             demo_mode: false,
             real_installed_skins: Vec::new(),
-            show_build_dialog: false,
-            selected_build_method: BuildMethod::OskPackage,
         }
     }
 }
@@ -628,10 +611,11 @@ mod tests {
     }
 
     #[test]
-    fn build_dialog_defaults_to_closed_and_osk_method() {
+    fn default_state_enables_open_after_export_and_both_version_filters() {
         let state = AppState::default();
-        assert!(!state.show_build_dialog);
-        assert_eq!(state.selected_build_method, BuildMethod::OskPackage);
+        assert!(state.open_after_export);
+        assert!(state.show_lazer_skins);
+        assert!(state.show_stable_skins);
     }
 
     #[test]

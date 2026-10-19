@@ -1,16 +1,22 @@
-use eframe::egui;
-use skinforge_core::categorize::{ComponentCategory, ComponentSlot};
+use eframe::egui::{self, pos2, vec2, Color32, Rect};
+use skinforge_core::bridge::SkinSource;
+use skinforge_core::categorize::{ComponentCategory, ComponentSlot, ComponentSubgroup};
 use skinforge_core::mixer::SlotSource;
 
 use crate::audio::AudioPlayer;
-use crate::state::{ActiveTab, AppState};
-use crate::textures::resolve_slot_file_path;
+use crate::state::{truncate_text, ActiveTab, AppState};
+use crate::textures::{resolve_slot_file_path, TextureCache};
 use crate::views::colors::render_colors;
 
-pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState, audio: &AudioPlayer) {
+pub fn render_categories(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    textures: &mut TextureCache,
+    audio: &AudioPlayer,
+) {
     ui.vertical(|ui| {
-        // Category tabs
-        ui.horizontal(|ui| {
+        // Category tabs (5 component categories + Colors & Settings)
+        ui.horizontal_wrapped(|ui| {
             render_tab_button(
                 ui,
                 state,
@@ -28,6 +34,20 @@ pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState, audio: &AudioP
             render_tab_button(
                 ui,
                 state,
+                ActiveTab::Category(ComponentCategory::Hud),
+                egui_phosphor::regular::GAUGE,
+                "HUD & Playfield",
+            );
+            render_tab_button(
+                ui,
+                state,
+                ActiveTab::Category(ComponentCategory::Interface),
+                egui_phosphor::regular::LAYOUT,
+                "Menus & Screens",
+            );
+            render_tab_button(
+                ui,
+                state,
                 ActiveTab::Category(ComponentCategory::Audio),
                 egui_phosphor::regular::SPEAKER_HIGH,
                 "Audio",
@@ -35,26 +55,19 @@ pub fn render_categories(ui: &mut egui::Ui, state: &mut AppState, audio: &AudioP
             render_tab_button(
                 ui,
                 state,
-                ActiveTab::Category(ComponentCategory::Interface),
-                egui_phosphor::regular::LAYOUT,
-                "Interface",
-            );
-            render_tab_button(
-                ui,
-                state,
                 ActiveTab::Colors,
                 egui_phosphor::regular::PALETTE,
-                "Colors",
+                "Colors & INI",
             );
         });
 
-        ui.add_space(8.0);
+        ui.add_space(6.0);
         ui.separator();
-        ui.add_space(8.0);
+        ui.add_space(6.0);
 
         // Active tab contents
         match state.active_tab {
-            ActiveTab::Category(cat) => render_category_content(ui, state, audio, cat),
+            ActiveTab::Category(cat) => render_category_content(ui, state, textures, audio, cat),
             ActiveTab::Colors => render_colors(ui, state),
         }
     });
@@ -77,73 +90,482 @@ fn render_tab_button(
 fn render_category_content(
     ui: &mut egui::Ui,
     state: &mut AppState,
+    textures: &mut TextureCache,
     audio: &AudioPlayer,
     category: ComponentCategory,
 ) {
-    // 1. Batch action toolbar
+    let donor_candidates: Vec<(String, String, SkinSource)> = state
+        .visible_skins()
+        .into_iter()
+        .map(|s| (s.id.clone(), s.name.clone(), s.source))
+        .collect();
+
+    // 1. Category-wide batch action toolbar
     ui.horizontal(|ui| {
         ui.label(format!(
-            "{} Batch replace:",
+            "{} Category batch:",
             egui_phosphor::regular::LIGHTNING
         ));
 
         egui::ComboBox::from_id_salt(format!("batch_donor_{:?}", category))
-            .selected_text("Select donor for entire category...")
+            .selected_text("Apply donor to all in category...")
+            .width(210.0)
             .show_ui(ui, |ui| {
-                let skin_items: Vec<(String, String)> = state
-                    .installed_skins
-                    .iter()
-                    .map(|s| (s.id.clone(), s.name.clone()))
-                    .collect();
-
-                for (id, name) in skin_items {
-                    if ui.button(&name).clicked() {
-                        state.batch_set_category(category, &id);
+                for (id, name, source) in &donor_candidates {
+                    let badge = match source {
+                        SkinSource::Lazer => "lazer",
+                        SkinSource::Stable => "stable",
+                    };
+                    let label = format!("[{badge}] {}", truncate_text(name, 26));
+                    if ui.button(label).on_hover_text(name).clicked() {
+                        state.batch_set_category(category, id);
                     }
                 }
             });
 
         if ui
             .button(format!(
-                "{} Reset to base",
+                "{} Reset All",
                 egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE
             ))
+            .on_hover_text("Reset all slots in this category to Base skin")
             .clicked()
         {
             state.reset_category_to_base(category);
         }
     });
 
-    ui.add_space(8.0);
+    ui.add_space(6.0);
     ui.separator();
-    ui.add_space(8.0);
+    ui.add_space(6.0);
 
-    // 2. Slot list for current category
-    let slots_in_cat: Vec<ComponentSlot> = ComponentSlot::all()
-        .iter()
-        .filter(|s| s.category() == category)
-        .copied()
-        .collect();
+    // 2. Collapsible Subgroups within the active category
+    let subgroups = ComponentSubgroup::subgroups_for_category(category);
 
     egui::ScrollArea::vertical()
         .id_salt(format!("slots_scroll_{:?}", category))
         .show(ui, |ui| {
-            for slot in slots_in_cat {
-                render_slot_row(ui, state, audio, slot);
+            for &subgroup in subgroups {
+                render_subgroup_section(ui, state, textures, audio, subgroup, &donor_candidates);
+                ui.add_space(6.0);
             }
 
-            // Accordion for Cursor category
             if category == ComponentCategory::Cursor {
-                ui.add_space(8.0);
+                ui.add_space(4.0);
                 render_cursor_advanced(ui, state);
             }
 
-            // Accordion for Gameplay category
             if category == ComponentCategory::Gameplay {
-                ui.add_space(8.0);
+                ui.add_space(4.0);
                 render_gameplay_advanced(ui, state);
             }
         });
+}
+
+fn render_subgroup_section(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    textures: &mut TextureCache,
+    audio: &AudioPlayer,
+    subgroup: ComponentSubgroup,
+    donor_candidates: &[(String, String, SkinSource)],
+) {
+    let slots = subgroup.slots();
+    let total_count = slots.len();
+    let overridden_count = slots
+        .iter()
+        .filter(|s| {
+            !matches!(
+                state.slot_sources.get(s).unwrap_or(&SlotSource::Base),
+                SlotSource::Base
+            )
+        })
+        .count();
+
+    let is_expanded = state.is_subgroup_expanded(subgroup);
+    let caret = if is_expanded {
+        egui_phosphor::regular::CARET_DOWN
+    } else {
+        egui_phosphor::regular::CARET_RIGHT
+    };
+
+    // Subgroup header bar
+    egui::Frame::group(ui.style())
+        .fill(Color32::from_rgb(24, 24, 34))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let header_label = format!(
+                    "{caret} {} ({overridden_count}/{total_count} modified)",
+                    subgroup.display_name()
+                );
+                if ui
+                    .selectable_label(
+                        is_expanded,
+                        egui::RichText::new(header_label).strong().size(13.0),
+                    )
+                    .on_hover_text("Click to expand or collapse this sub-group")
+                    .clicked()
+                {
+                    state.toggle_subgroup(subgroup);
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if overridden_count > 0
+                        && ui
+                            .small_button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                            .on_hover_text("Reset this sub-group to Base skin")
+                            .clicked()
+                    {
+                        state.reset_subgroup_to_base(subgroup);
+                    }
+
+                    egui::ComboBox::from_id_salt(format!("subgroup_batch_{:?}", subgroup))
+                        .selected_text("Batch sub-group...")
+                        .width(135.0)
+                        .show_ui(ui, |ui| {
+                            for (id, name, source) in donor_candidates {
+                                let badge = match source {
+                                    SkinSource::Lazer => "lazer",
+                                    SkinSource::Stable => "stable",
+                                };
+                                let label = format!("[{badge}] {}", truncate_text(name, 24));
+                                if ui.button(label).on_hover_text(name).clicked() {
+                                    state.batch_set_subgroup(subgroup, id);
+                                }
+                            }
+                        });
+                });
+            });
+
+            if is_expanded {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                for slot in slots {
+                    render_slot_row(ui, state, textures, audio, slot, donor_candidates);
+                }
+            }
+        });
+}
+
+fn render_slot_row(
+    ui: &mut egui::Ui,
+    state: &mut AppState,
+    textures: &mut TextureCache,
+    audio: &AudioPlayer,
+    slot: ComponentSlot,
+    donor_candidates: &[(String, String, SkinSource)],
+) {
+    let current_source = state
+        .slot_sources
+        .get(&slot)
+        .cloned()
+        .unwrap_or(SlotSource::Base);
+
+    let (short_source_text, full_source_tooltip, source_color) = match &current_source {
+        SlotSource::Base => (
+            "Base skin".to_string(),
+            "Inherited from Base skin (foundation)".to_string(),
+            Color32::from_rgb(175, 175, 195),
+        ),
+        SlotSource::None => {
+            if slot == ComponentSlot::HudLayout {
+                (
+                    "Default HUD (None)".to_string(),
+                    "Uses default osu!lazer HUD (no custom skin.json)".to_string(),
+                    Color32::from_rgb(255, 185, 60),
+                )
+            } else {
+                (
+                    "Disabled (None)".to_string(),
+                    "Component is disabled / replaced with blank asset".to_string(),
+                    Color32::from_rgb(255, 185, 60),
+                )
+            }
+        }
+        SlotSource::CustomFile(path) => {
+            let name = path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("custom");
+            (
+                format!("File: {}", truncate_text(name, 14)),
+                format!("Custom file from disk:\n{}", path.display()),
+                Color32::from_rgb(100, 205, 255),
+            )
+        }
+        SlotSource::Donor(id) => state
+            .installed_skins
+            .iter()
+            .find(|s| &s.id == id)
+            .map(|s| {
+                let badge = s.badge_label();
+                (
+                    format!("[{badge}] {}", truncate_text(&s.name, 14)),
+                    format!("Donor skin: {} (osu!{badge})", s.name),
+                    Color32::from_rgb(85, 239, 148),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    "Unknown donor".to_string(),
+                    "Selected donor skin is not loaded".to_string(),
+                    Color32::from_rgb(255, 120, 120),
+                )
+            }),
+    };
+
+    let mut new_custom_file = None;
+
+    egui::Frame::none()
+        .fill(Color32::from_rgb(18, 18, 26))
+        .rounding(6.0)
+        .inner_margin(egui::Margin::symmetric(8.0, 5.0))
+        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(38, 38, 54)))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                // Column 1: 28x28 Mini Preview OR Audio Play/Stop Toggle
+                if slot.is_audio() {
+                    let is_none = matches!(current_source, SlotSource::None);
+                    let is_playing = audio.is_playing_slot(slot);
+                    ui.add_enabled_ui(!is_none, |ui| {
+                        let (icon, tint, tip) = if is_playing {
+                            (
+                                egui_phosphor::regular::STOP,
+                                Color32::from_rgb(255, 110, 140),
+                                "Stop audio playback",
+                            )
+                        } else {
+                            (
+                                egui_phosphor::regular::PLAY,
+                                Color32::from_rgb(162, 155, 254),
+                                "Play sound preview (uses default osu! sound if skin omits this file)",
+                            )
+                        };
+                        let btn = egui::Button::new(egui::RichText::new(icon).color(tint))
+                            .min_size(vec2(28.0, 28.0));
+                        if ui.add(btn).on_hover_text(tip).clicked() {
+                            let path = resolve_slot_file_path(state, slot);
+                            audio.toggle_slot(slot, path.as_deref());
+                        }
+                    });
+                } else {
+                    let (thumb_rect, thumb_resp) =
+                        ui.allocate_exact_size(vec2(28.0, 28.0), egui::Sense::click());
+                    ui.painter()
+                        .rect_filled(thumb_rect, 4.0, Color32::from_rgb(12, 12, 18));
+                    ui.painter().rect_stroke(
+                        thumb_rect,
+                        4.0,
+                        egui::Stroke::new(1.0_f32, Color32::from_rgb(48, 48, 68)),
+                    );
+
+                    if slot == ComponentSlot::HudLayout {
+                        ui.painter().text(
+                            thumb_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            egui_phosphor::regular::CODE,
+                            egui::FontId::proportional(14.0),
+                            Color32::from_rgb(162, 155, 254),
+                        );
+                    } else if let Some(tex) = textures.get_or_load_slot(ui.ctx(), state, slot) {
+                        let tex_size = tex.size_vec2();
+                        let max_dim = tex_size.x.max(tex_size.y).max(1.0);
+                        let fit_scale = (24.0 / max_dim).min(2.0);
+                        let draw_size = (tex_size * fit_scale).clamp(vec2(6.0, 6.0), vec2(24.0, 24.0));
+                        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                        ui.painter().image(
+                            tex.id(),
+                            Rect::from_center_size(thumb_rect.center(), draw_size),
+                            uv,
+                            Color32::WHITE,
+                        );
+                    } else {
+                        ui.painter().text(
+                            thumb_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            egui_phosphor::regular::IMAGE,
+                            egui::FontId::proportional(13.0),
+                            Color32::from_rgb(90, 90, 110),
+                        );
+                    }
+
+                    if thumb_resp.clicked() || thumb_resp.hovered() {
+                        state.inspected_slot = slot;
+                    }
+                    thumb_resp.on_hover_text(format!(
+                        "{} ({})\nHover or click to inspect in Preview panel",
+                        slot.display_name(),
+                        slot.primary_filename()
+                    ));
+                }
+
+                ui.add_space(4.0);
+
+                // Column 2: Fixed-width Slot Name & Primary Filename (never overlapped by donor selector)
+                let label_width = 148.0;
+                let label_resp = ui.allocate_ui_with_layout(
+                    vec2(label_width, 28.0),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        ui.set_max_width(label_width);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(truncate_text(slot.display_name(), 20))
+                                    .strong()
+                                    .size(12.5)
+                                    .color(source_color),
+                            )
+                            .truncate(),
+                        );
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(truncate_text(slot.primary_filename(), 23))
+                                    .size(10.0)
+                                    .color(Color32::from_rgb(140, 140, 165)),
+                            )
+                            .truncate(),
+                        );
+                    },
+                );
+                if !slot.is_audio()
+                    && slot != ComponentSlot::HudLayout
+                    && (label_resp.response.clicked() || label_resp.response.hovered())
+                {
+                    state.inspected_slot = slot;
+                }
+                label_resp.response.on_hover_text(format!(
+                    "{}\nFile: {}\n{}",
+                    slot.display_name(),
+                    slot.primary_filename(),
+                    full_source_tooltip
+                ));
+
+                // Column 3: Bounded Donor ComboBox
+                let action_buttons_width = 58.0;
+                let combo_width = (ui.available_width() - action_buttons_width).clamp(115.0, 210.0);
+
+                let combo_resp = egui::ComboBox::from_id_salt(format!("slot_combo_{:?}", slot))
+                    .selected_text(short_source_text)
+                    .width(combo_width)
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(
+                                matches!(current_source, SlotSource::Base),
+                                "Base skin (foundation)",
+                            )
+                            .clicked()
+                        {
+                            state.set_slot_source(slot, SlotSource::Base);
+                        }
+
+                        if slot.can_be_none() {
+                            let none_label = if slot == ComponentSlot::HudLayout {
+                                "Default Lazer HUD (None)"
+                            } else {
+                                "Disable / Remove (None)"
+                            };
+                            if ui
+                                .selectable_label(
+                                    matches!(current_source, SlotSource::None),
+                                    none_label,
+                                )
+                                .clicked()
+                            {
+                                state.set_slot_source(slot, SlotSource::None);
+                            }
+                        }
+
+                        ui.separator();
+
+                        let filtered_donors: Vec<&(String, String, SkinSource)> = donor_candidates
+                            .iter()
+                            .filter(|(id, _, _)| {
+                                if slot == ComponentSlot::HudLayout {
+                                    state
+                                        .installed_skins
+                                        .iter()
+                                        .find(|s| &s.id == id)
+                                        .is_some_and(|s| {
+                                            s.files.iter().any(|f| {
+                                                f.filename.eq_ignore_ascii_case("skin.json")
+                                            })
+                                        })
+                                } else {
+                                    true
+                                }
+                            })
+                            .collect();
+
+                        if filtered_donors.is_empty() && slot == ComponentSlot::HudLayout {
+                            ui.label(
+                                egui::RichText::new("(No visible skins have skin.json)")
+                                    .size(11.0)
+                                    .color(Color32::from_rgb(140, 140, 160)),
+                            );
+                        }
+
+                        for (id, name, source) in filtered_donors {
+                            let is_this_donor = match &current_source {
+                                SlotSource::Donor(d_id) => d_id == id,
+                                _ => false,
+                            };
+                            let badge = match source {
+                                SkinSource::Lazer => "lazer",
+                                SkinSource::Stable => "stable",
+                            };
+                            let item_label = format!("[{badge}] {}", truncate_text(name, 26));
+                            if ui
+                                .selectable_label(is_this_donor, item_label)
+                                .on_hover_text(name)
+                                .clicked()
+                            {
+                                state.set_slot_source(slot, SlotSource::Donor(id.clone()));
+                            }
+                        }
+                    });
+                combo_resp.response.on_hover_text(&full_source_tooltip);
+
+                // Column 4: Compact Action Buttons (Import file + Reset to Base)
+                if slot.supports_single_file_import()
+                    && ui
+                        .button(egui_phosphor::regular::FOLDER_OPEN)
+                        .on_hover_text("Import custom file from disk...")
+                        .clicked()
+                {
+                    let mut dialog = rfd::FileDialog::new();
+                    if slot == ComponentSlot::HudLayout {
+                        dialog = dialog.add_filter("osu!lazer HUD Layout", &["json"]);
+                    } else if slot.is_audio() {
+                        dialog = dialog.add_filter("Audio files", &["wav", "ogg", "mp3"]);
+                    } else {
+                        dialog = dialog.add_filter("Image files", &["png", "jpg", "jpeg"]);
+                    }
+
+                    if let Some(path) = dialog.pick_file() {
+                        new_custom_file = Some(path);
+                    }
+                }
+
+                let is_modified = !matches!(current_source, SlotSource::Base);
+                ui.add_enabled_ui(is_modified, |ui| {
+                    if ui
+                        .button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                        .on_hover_text("Reset slot to Base skin")
+                        .clicked()
+                    {
+                        state.set_slot_source(slot, SlotSource::Base);
+                    }
+                });
+            });
+        });
+
+    if let Some(path) = new_custom_file {
+        state.set_slot_custom_file(slot, path);
+    }
+
+    ui.add_space(3.0);
 }
 
 fn render_cursor_advanced(ui: &mut egui::Ui, state: &mut AppState) {
@@ -316,207 +738,4 @@ fn render_gameplay_advanced(ui: &mut egui::Ui, state: &mut AppState) {
             });
         });
     }
-}
-
-fn render_slot_row(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    audio: &AudioPlayer,
-    slot: ComponentSlot,
-) {
-    let current_source = state
-        .slot_sources
-        .get(&slot)
-        .cloned()
-        .unwrap_or(SlotSource::Base);
-
-    let display_text = match &current_source {
-        SlotSource::Base => "Base skin (foundation)".to_string(),
-        SlotSource::None => {
-            if slot == ComponentSlot::HudLayout {
-                "Default Lazer HUD (None)".to_string()
-            } else {
-                "Disable / Remove (None)".to_string()
-            }
-        }
-        SlotSource::CustomFile(path) => {
-            let name = path
-                .file_name()
-                .and_then(|f| f.to_str())
-                .unwrap_or("custom");
-            format!("Custom file ({name})")
-        }
-        SlotSource::Donor(id) => state
-            .installed_skins
-            .iter()
-            .find(|s| &s.id == id)
-            .map(|s| format!("Donor: {}", s.name))
-            .unwrap_or_else(|| "Unknown donor".to_string()),
-    };
-
-    let mut new_custom_file = None;
-
-    egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            // Slot label and primary filename
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new(slot.display_name()).strong().size(13.0));
-                ui.label(
-                    egui::RichText::new(slot.primary_filename())
-                        .size(10.0)
-                        .color(egui::Color32::from_rgb(160, 160, 180)),
-                );
-            });
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // If custom file is selected, show a clear button
-                if matches!(current_source, SlotSource::CustomFile(_))
-                    && ui.button("✕").on_hover_text("Reset to base").clicked()
-                {
-                    state.set_slot_source(slot, SlotSource::Base);
-                }
-
-                // File import button
-                if slot.supports_single_file_import() {
-                    let import_text = format!("{} Import...", egui_phosphor::regular::FOLDER_OPEN);
-                    if ui.button(import_text).clicked() {
-                        let mut dialog = rfd::FileDialog::new();
-                        if slot == ComponentSlot::HudLayout {
-                            dialog = dialog.add_filter("osu!lazer HUD Layout", &["json"]);
-                        } else if slot.is_audio() {
-                            dialog = dialog.add_filter("Audio files", &["wav", "ogg", "mp3"]);
-                        } else {
-                            dialog = dialog.add_filter("Image files", &["png", "jpg", "jpeg"]);
-                        }
-
-                        if let Some(path) = dialog.pick_file() {
-                            new_custom_file = Some(path);
-                        }
-                    }
-                }
-
-                // Audio preview button (for any audio or UI sound slot)
-                if slot.is_audio() {
-                    let is_none = matches!(current_source, SlotSource::None);
-                    ui.add_enabled_ui(!is_none, |ui| {
-                        if ui
-                            .button(format!("{} Play", egui_phosphor::regular::PLAY))
-                            .on_hover_text("Preview this sound")
-                            .clicked()
-                        {
-                            if let Some(path) = resolve_slot_file_path(state, slot) {
-                                audio.play_from_file(&path);
-                            }
-                        }
-                    });
-                }
-
-                // Status badge
-                match &current_source {
-                    SlotSource::Base => {
-                        ui.label(
-                            egui::RichText::new("Base")
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(160, 160, 180)),
-                        );
-                    }
-                    SlotSource::None => {
-                        ui.label(
-                            egui::RichText::new("Removed")
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(255, 180, 50)),
-                        );
-                    }
-                    SlotSource::CustomFile(_) => {
-                        ui.label(
-                            egui::RichText::new("Custom")
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(100, 200, 255)),
-                        );
-                    }
-                    SlotSource::Donor(_) => {
-                        ui.label(
-                            egui::RichText::new("Replaced")
-                                .size(11.0)
-                                .color(egui::Color32::from_rgb(56, 239, 125)),
-                        );
-                    }
-                }
-
-                // Source dropdown
-                egui::ComboBox::from_id_salt(format!("slot_combo_{:?}", slot))
-                    .selected_text(display_text)
-                    .width(200.0)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                matches!(current_source, SlotSource::Base),
-                                "Base skin (foundation)",
-                            )
-                            .clicked()
-                        {
-                            state.set_slot_source(slot, SlotSource::Base);
-                        }
-
-                        if slot.can_be_none() {
-                            let none_label = if slot == ComponentSlot::HudLayout {
-                                "Default Lazer HUD (None)"
-                            } else {
-                                "Disable / Remove (None)"
-                            };
-                            if ui
-                                .selectable_label(
-                                    matches!(current_source, SlotSource::None),
-                                    none_label,
-                                )
-                                .clicked()
-                            {
-                                state.set_slot_source(slot, SlotSource::None);
-                            }
-                        }
-
-                        ui.separator();
-
-                        let skin_items: Vec<(String, String)> = state
-                            .installed_skins
-                            .iter()
-                            .filter(|s| {
-                                if slot == ComponentSlot::HudLayout {
-                                    s.files
-                                        .iter()
-                                        .any(|f| f.filename.eq_ignore_ascii_case("skin.json"))
-                                } else {
-                                    true
-                                }
-                            })
-                            .map(|s| (s.id.clone(), s.name.clone()))
-                            .collect();
-
-                        if skin_items.is_empty() && slot == ComponentSlot::HudLayout {
-                            ui.label(
-                                egui::RichText::new("(No donor skins have skin.json)")
-                                    .size(11.0)
-                                    .color(egui::Color32::from_rgb(140, 140, 160)),
-                            );
-                        }
-
-                        for (id, name) in skin_items {
-                            let is_this_donor = match &current_source {
-                                SlotSource::Donor(d_id) => d_id == &id,
-                                _ => false,
-                            };
-                            if ui.selectable_label(is_this_donor, &name).clicked() {
-                                state.set_slot_source(slot, SlotSource::Donor(id));
-                            }
-                        }
-                    });
-            });
-        });
-    });
-
-    if let Some(path) = new_custom_file {
-        state.set_slot_custom_file(slot, path);
-    }
-
-    ui.add_space(4.0);
 }

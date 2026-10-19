@@ -92,12 +92,12 @@ impl TextureCache {
 
 /// Resolves the `(Skin, SkinFile)` pair to display for a slot considering the selected source
 /// and automatic fallback to base skin.
-pub fn resolve_slot_skin_file<'a>(
-    state: &'a AppState,
+pub fn resolve_slot_skin_file(
+    state: &AppState,
     slot: ComponentSlot,
 ) -> Option<(
-    &'a skinforge_core::bridge::Skin,
-    &'a skinforge_core::bridge::SkinFile,
+    &skinforge_core::bridge::Skin,
+    &skinforge_core::bridge::SkinFile,
 )> {
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
     match source {
@@ -286,7 +286,6 @@ mod tests {
     #[test]
     fn resolve_slot_file_path_works_for_stable_skin_without_lazer_files_dir() {
         let mut state = AppState::default();
-        state.files_dir = None; // No osu!lazer installed
         let stable_folder = std::path::PathBuf::from("/tmp/fake-stable/Skins/WhiteCat");
         let stable_skin = Skin {
             id: "stable:WhiteCat".to_string(),

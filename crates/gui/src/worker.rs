@@ -1,209 +1,165 @@
 use skinforge_core::bridge::{RealmBridge, Skin};
 use skinforge_core::mixer::{self, ManifestMixPlan};
 use skinforge_core::paths::{self, find_realm_bridge_binary};
-use skinforge_core::process_guard;
 use skinforge_core::skin_ini::SkinIni;
-use skinforge_core::storage::store_resource_bytes;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::app::AppEvent;
-use crate::state::BuildMethod;
 
-pub struct BuildSkinTask {
-    pub method: BuildMethod,
+pub struct ExportOskTask {
     pub plan: ManifestMixPlan,
     pub combo_colours: Vec<(u8, u8, u8)>,
     pub installed_skins: Vec<Skin>,
-    pub files_dir: PathBuf,
-    pub lazer_root: PathBuf,
-    pub client_realm_path: PathBuf,
-    pub set_active_on_build: bool,
+    pub files_dir: Option<PathBuf>,
+    pub output_path: PathBuf,
+    pub open_after_export: bool,
     pub extended_ini: SkinIni,
 }
 
 pub enum WorkerTask {
-    CheckProcess,
-    LoadSkins,
-    BuildSkin(Box<BuildSkinTask>),
+    LoadSkins {
+        custom_lazer_root: Option<PathBuf>,
+        custom_stable_root: Option<PathBuf>,
+    },
+    ExportOsk(Box<ExportOskTask>),
 }
 
 pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
     while let Ok(task) = rx.recv() {
         match task {
-            WorkerTask::CheckProcess => {
-                let running = process_guard::is_game_running();
-                let _ = tx.send(AppEvent::ProcessCheckResult(running));
-            }
-            WorkerTask::LoadSkins => match paths::resolve_lazer_root() {
-                Ok(installation) => {
-                    let _ = tx.send(AppEvent::InstallationFound(installation.clone()));
-                    let bridge_bin = find_realm_bridge_binary();
-                    match bridge_bin {
+            WorkerTask::LoadSkins {
+                custom_lazer_root,
+                custom_stable_root,
+            } => {
+                let mut combined_skins: Vec<Skin> = Vec::new();
+                let mut found_any_source = false;
+                let mut lazer_error: Option<String> = None;
+
+                // 1. Discover osu!lazer skins (if available)
+                if let Ok(installation) =
+                    paths::resolve_lazer_root_with_override(custom_lazer_root)
+                {
+                    let _ = tx.send(AppEvent::LazerInstallationFound(installation.clone()));
+                    match find_realm_bridge_binary() {
                         Some(bin) => match RealmBridge::new(bin) {
                             Ok(bridge) => match bridge.dump_skins(&installation.client_realm) {
                                 Ok(skins) => {
-                                    let _ = tx.send(AppEvent::SkinsLoaded(Ok(skins)));
+                                    found_any_source = true;
+                                    combined_skins.extend(skins);
                                 }
                                 Err(err) => {
-                                    let _ = tx.send(AppEvent::SkinsLoaded(Err(format!(
-                                        "Failed to read Realm database: {err}"
-                                    ))));
+                                    lazer_error =
+                                        Some(format!("Failed to read osu!lazer Realm DB: {err}"));
                                 }
                             },
                             Err(err) => {
-                                let _ = tx.send(AppEvent::SkinsLoaded(Err(format!(
-                                    "Failed to initialize RealmBridge: {err}"
-                                ))));
+                                lazer_error =
+                                    Some(format!("Failed to initialize RealmBridge: {err}"));
                             }
                         },
                         None => {
-                            let _ = tx.send(AppEvent::SkinsLoaded(Err(
-                                    "realm-bridge binary not found. Please compile or bundle the realm-bridge project.".to_string(),
-                                )));
+                            lazer_error = Some(
+                                "realm-bridge binary not found for osu!lazer skin loading."
+                                    .to_string(),
+                            );
                         }
                     }
                 }
-                Err(err) => {
-                    let _ = tx.send(AppEvent::SkinsLoaded(Err(format!(
-                        "osu!lazer data directory not found: {err}"
-                    ))));
+
+                // 2. Discover osu!stable skins (if available)
+                if let Some(stable_inst) =
+                    paths::resolve_stable_root_with_override(custom_stable_root)
+                {
+                    let _ = tx.send(AppEvent::StableInstallationFound(stable_inst.clone()));
+                    let stable_skins = paths::scan_stable_skins(&stable_inst.skins_dir);
+                    found_any_source = true;
+                    combined_skins.extend(stable_skins);
                 }
-            },
-            WorkerTask::BuildSkin(task) => {
-                let result = match task.method {
-                    BuildMethod::OskPackage => execute_build_osk(
-                        &task.plan,
-                        &task.combo_colours,
-                        &task.installed_skins,
-                        &task.files_dir,
-                        &task.lazer_root,
-                        &task.extended_ini,
-                    ),
-                    BuildMethod::DirectRealm => execute_apply_mix(
-                        &task.plan,
-                        &task.combo_colours,
-                        &task.installed_skins,
-                        &task.files_dir,
-                        &task.client_realm_path,
-                        task.set_active_on_build,
-                        &task.extended_ini,
-                    ),
-                };
+
+                if found_any_source {
+                    let _ = tx.send(AppEvent::SkinsLoaded(Ok(combined_skins)));
+                } else if let Some(err) = lazer_error {
+                    let _ = tx.send(AppEvent::SkinsLoaded(Err(err)));
+                } else {
+                    let _ = tx.send(AppEvent::SkinsLoaded(Err(
+                        "Neither osu!lazer nor osu!stable skin directory was found. Use the folder buttons in the sidebar to select your osu! folder."
+                            .to_string(),
+                    )));
+                }
+            }
+            WorkerTask::ExportOsk(task) => {
+                let result = execute_export_osk(
+                    &task.plan,
+                    &task.combo_colours,
+                    &task.installed_skins,
+                    task.files_dir.as_deref(),
+                    &task.output_path,
+                    task.open_after_export,
+                    &task.extended_ini,
+                );
                 let _ = tx.send(AppEvent::MixCompleted(result));
             }
         }
     }
 }
 
-fn execute_apply_mix(
-    plan: &ManifestMixPlan,
-    combo_colours: &[(u8, u8, u8)],
-    installed_skins: &[Skin],
-    files_dir: &Path,
-    client_realm_path: &Path,
-    set_active_on_build: bool,
-    extended_ini: &SkinIni,
-) -> Result<String, String> {
-    // 1. Process check
-    process_guard::ensure_game_not_running().map_err(|e| format!("Cannot apply skin: {e}"))?;
-
-    // 2. Initialize bridge
-    let bridge_bin =
-        find_realm_bridge_binary().ok_or_else(|| "realm-bridge binary not found".to_string())?;
-    let bridge = RealmBridge::new(bridge_bin)
-        .map_err(|e| format!("Failed to initialize RealmBridge: {e}"))?;
-
-    // 3. Prepare skin.ini
-    let mut skin_ini = extended_ini.clone();
-    skin_ini.set_general("Name", &plan.new_skin_name);
-    skin_ini.set_general("Author", &plan.new_skin_creator);
-    skin_ini.set_combo_colours(combo_colours);
-
-    let serialized_ini = skin_ini.to_string();
-    let stored = store_resource_bytes(files_dir, serialized_ini.as_bytes())
-        .map_err(|e| format!("Failed to store skin.ini in files storage: {e}"))?;
-
-    // 4. Resolve manifest mix plan into patch operations
-    let mut plan = plan.clone();
-    plan.custom_skin_ini_hash = Some(stored.hash);
-
-    let patch = mixer::resolve_manifest_mix_with_storage(files_dir, installed_skins, &plan)
-        .map_err(|e| format!("Failed to build mix plan: {e}"))?;
-
-    // 5. Apply patch via realm-bridge (automatic client.realm backup created inside)
-    let outcome = bridge
-        .apply_patch(client_realm_path, patch.operations)
-        .map_err(|e| format!("Failed to apply patch in Realm: {e}"))?;
-
-    // 6. If requested, set as active skin in game.ini
-    if set_active_on_build {
-        if let Some(data_dir) = client_realm_path.parent() {
-            if let Err(e) = skinforge_core::game_ini::set_active_skin(data_dir, &patch.new_skin_id)
-            {
-                eprintln!("Warning: failed to set active skin in game.ini: {e}");
-            }
-        }
-    }
-
-    Ok(format!(
-        "Skin '{}' successfully installed into osu!lazer! (Backup: {:?})",
-        plan.new_skin_name,
-        outcome.backup_path.file_name().unwrap_or_default()
-    ))
-}
-
-fn execute_build_osk(
-    plan: &ManifestMixPlan,
-    combo_colours: &[(u8, u8, u8)],
-    installed_skins: &[Skin],
-    files_dir: &Path,
-    lazer_root: &Path,
-    extended_ini: &SkinIni,
-) -> Result<String, String> {
-    let mut skin_ini = extended_ini.clone();
-    skin_ini.set_general("Name", &plan.new_skin_name);
-    skin_ini.set_general("Author", &plan.new_skin_creator);
-    skin_ini.set_combo_colours(combo_colours);
-    let serialized_ini = skin_ini.to_string();
-
-    let safe_name: String = plan
-        .new_skin_name
+pub fn sanitize_skin_filename(name: &str) -> String {
+    let sanitized: String = name
         .chars()
         .map(|c| {
-            if c == '/'
-                || c == '\\'
-                || c == ':'
-                || c == '*'
-                || c == '?'
-                || c == '"'
-                || c == '<'
-                || c == '>'
-                || c == '|'
-            {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
                 '_'
             } else {
                 c
             }
         })
         .collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() {
+        "Mixed_Skin".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
 
-    let exports_dir = lazer_root.join("exports");
-    let osk_path = exports_dir.join(format!("{safe_name}.osk"));
+fn execute_export_osk(
+    plan: &ManifestMixPlan,
+    combo_colours: &[(u8, u8, u8)],
+    installed_skins: &[Skin],
+    files_dir: Option<&Path>,
+    output_path: &Path,
+    open_after_export: bool,
+    extended_ini: &SkinIni,
+) -> Result<String, String> {
+    let mut skin_ini = extended_ini.clone();
+    skin_ini.set_general("Name", &plan.new_skin_name);
+    skin_ini.set_general("Author", &plan.new_skin_creator);
+    skin_ini.set_combo_colours(combo_colours);
+    let serialized_ini = skin_ini.to_string();
 
     mixer::export_osk(
-        Some(files_dir),
+        files_dir,
         installed_skins,
         plan,
         Some(&serialized_ini),
-        &osk_path,
+        output_path,
     )
     .map_err(|e| format!("Failed to create .osk archive: {e}"))?;
 
-    let _ = mixer::launch_osk_file(&osk_path);
-
-    Ok(format!(
-        "Skin exported to '{}' and launched in osu!lazer!",
-        osk_path.file_name().unwrap_or_default().to_string_lossy()
-    ))
+    if open_after_export {
+        let _ = mixer::launch_osk_file(output_path);
+        Ok(format!(
+            "Exported '{}' and opened in osu!",
+            output_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ))
+    } else {
+        Ok(format!(
+            "Exported .osk skin to '{}'",
+            output_path.display()
+        ))
+    }
 }

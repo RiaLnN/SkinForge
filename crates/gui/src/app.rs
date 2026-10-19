@@ -1,19 +1,19 @@
 use eframe::egui;
 use skinforge_core::bridge::Skin;
-use skinforge_core::paths::LazerInstallation;
+use skinforge_core::paths::{LazerInstallation, StableInstallation};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::audio::AudioPlayer;
 use crate::state::AppState;
 use crate::textures::TextureCache;
-use crate::views::{build_dialog, categories, preview, sidebar};
-use crate::worker::WorkerTask;
+use crate::views::{categories, preview, sidebar};
+use crate::worker::{sanitize_skin_filename, ExportOskTask, WorkerTask};
 
 pub enum AppEvent {
-    InstallationFound(LazerInstallation),
+    LazerInstallationFound(LazerInstallation),
+    StableInstallationFound(StableInstallation),
     SkinsLoaded(Result<Vec<Skin>, String>),
     MixCompleted(Result<String, String>),
-    ProcessCheckResult(bool),
 }
 
 pub struct MixerApp {
@@ -22,7 +22,6 @@ pub struct MixerApp {
     pub audio: AudioPlayer,
     pub worker_tx: Sender<WorkerTask>,
     pub rx: Receiver<AppEvent>,
-    pub last_process_check: f64,
 }
 
 impl MixerApp {
@@ -36,6 +35,10 @@ impl MixerApp {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
 
+        cc.egui_ctx.style_mut(|style| {
+            style.interaction.selectable_labels = false;
+        });
+
         let mut state = AppState::default();
         if demo_mode {
             state.enable_demo_mode();
@@ -47,26 +50,66 @@ impl MixerApp {
             audio: AudioPlayer::new(),
             worker_tx,
             rx,
-            last_process_check: 0.0,
+        }
+    }
+
+    fn dispatch_export_osk(&mut self) {
+        let Some(plan) = self.state.build_mix_plan(None) else {
+            return;
+        };
+
+        let safe_name = sanitize_skin_filename(&plan.new_skin_name);
+        let default_filename = format!("{safe_name}.osk");
+
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Export Mixed .osk Skin")
+            .add_filter("osu! Skin Package (.osk)", &["osk"])
+            .set_file_name(&default_filename);
+
+        if let Some(lazer_root) = &self.state.lazer_root {
+            let exports_dir = lazer_root.join("exports");
+            let _ = std::fs::create_dir_all(&exports_dir);
+            if exports_dir.is_dir() {
+                dialog = dialog.set_directory(&exports_dir);
+            }
+        } else if let Some(stable_root) = &self.state.stable_root {
+            if stable_root.is_dir() {
+                dialog = dialog.set_directory(stable_root);
+            }
+        }
+
+        if let Some(mut output_path) = dialog.save_file() {
+            if output_path.extension().is_none() {
+                output_path.set_extension("osk");
+            }
+            self.state.is_working = true;
+            self.state.status_message = None;
+
+            let task = ExportOskTask {
+                plan,
+                combo_colours: self.state.combo_colours.clone(),
+                installed_skins: self.state.installed_skins.clone(),
+                files_dir: self.state.files_dir.clone(),
+                output_path,
+                open_after_export: self.state.open_after_export,
+                extended_ini: self.state.extended_ini.clone(),
+            };
+            let _ = self.worker_tx.send(WorkerTask::ExportOsk(Box::new(task)));
         }
     }
 }
 
 impl eframe::App for MixerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Periodic game process check every 2 seconds
-        let time = ctx.input(|i| i.time);
-        if time - self.last_process_check > 2.0 {
-            self.last_process_check = time;
-            let _ = self.worker_tx.send(WorkerTask::CheckProcess);
-        }
-
         while let Ok(event) = self.rx.try_recv() {
             match event {
-                AppEvent::InstallationFound(inst) => {
+                AppEvent::LazerInstallationFound(inst) => {
                     self.state.lazer_root = Some(inst.root);
                     self.state.files_dir = Some(inst.files_dir);
                     self.state.client_realm_path = Some(inst.client_realm);
+                }
+                AppEvent::StableInstallationFound(inst) => {
+                    self.state.stable_root = Some(inst.root);
                 }
                 AppEvent::SkinsLoaded(Ok(skins)) => {
                     self.state.set_installed_skins(skins);
@@ -79,15 +122,10 @@ impl eframe::App for MixerApp {
                 AppEvent::MixCompleted(Ok(msg)) => {
                     self.state.status_message = Some((msg, false));
                     self.state.is_working = false;
-                    // Automatically reload skins so the newly created skin appears in the list
-                    let _ = self.worker_tx.send(WorkerTask::LoadSkins);
                 }
                 AppEvent::MixCompleted(Err(err)) => {
                     self.state.status_message = Some((err, true));
                     self.state.is_working = false;
-                }
-                AppEvent::ProcessCheckResult(running) => {
-                    self.state.is_game_running = running;
                 }
             }
         }
@@ -98,13 +136,17 @@ impl eframe::App for MixerApp {
 
                 if ui
                     .button(format!(
-                        "{} Refresh",
+                        "{} Refresh Skins",
                         egui_phosphor::regular::ARROWS_CLOCKWISE
                     ))
+                    .on_hover_text("Reload skins from osu!lazer and osu!stable")
                     .clicked()
                 {
                     self.state.is_working = true;
-                    let _ = self.worker_tx.send(WorkerTask::LoadSkins);
+                    let _ = self.worker_tx.send(WorkerTask::LoadSkins {
+                        custom_lazer_root: self.state.custom_lazer_root.clone(),
+                        custom_stable_root: self.state.custom_stable_root.clone(),
+                    });
                 }
 
                 ui.separator();
@@ -144,27 +186,25 @@ impl eframe::App for MixerApp {
         });
 
         egui::SidePanel::left("sidebar_panel")
-            .default_width(280.0)
-            .width_range(240.0..=360.0)
+            .default_width(285.0)
+            .width_range(250.0..=360.0)
             .show(ctx, |ui| {
-                sidebar::render_sidebar(ui, &mut self.state);
+                sidebar::render_sidebar(ui, &mut self.state, &self.worker_tx);
             });
 
         egui::SidePanel::right("preview_panel")
-            .default_width(380.0)
-            .width_range(300.0..=480.0)
+            .default_width(370.0)
+            .width_range(310.0..=460.0)
             .show(ctx, |ui| {
                 let action =
                     preview::render_preview(ui, &mut self.state, &mut self.textures, &self.audio);
-                if action == preview::PreviewAction::OpenBuildDialog {
-                    self.state.show_build_dialog = true;
+                if action == preview::PreviewAction::ExportOsk {
+                    self.dispatch_export_osk();
                 }
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            categories::render_categories(ui, &mut self.state, &self.audio);
+            categories::render_categories(ui, &mut self.state, &mut self.textures, &self.audio);
         });
-
-        build_dialog::render_build_dialog(ctx, &mut self.state, &self.worker_tx);
     }
 }
