@@ -7,11 +7,10 @@ use sha2::{Digest, Sha256};
 use crate::error::{io_err, CoreResult};
 use crate::paths::hashed_storage_path;
 
-const READ_BUFFER_SIZE: usize = 1024 * 1024; // 1 MiB — стримим, не грузим файл в память целиком
+const READ_BUFFER_SIZE: usize = 1024 * 1024; // 1 MiB streaming buffer
 
-/// Считает SHA-256 файла потоково (важно для звуков/спрайтов покрупнее — не
-/// читаем весь файл в RAM) и возвращает hex-строку в нижнем регистре, как
-/// это делает сама lazer.
+/// Computes the SHA-256 digest of a file in a streaming manner and returns a
+/// lowercase hex string matching osu!lazer's content-addressed storage format.
 pub fn sha256_hex(path: &Path) -> CoreResult<String> {
     let file = File::open(path).map_err(io_err(path))?;
     let mut reader = BufReader::new(file);
@@ -30,7 +29,7 @@ pub fn sha256_hex(path: &Path) -> CoreResult<String> {
 }
 
 fn hex_lowercase(bytes: &[u8]) -> String {
-    // Эквивалент format!("{:x}", ...) для произвольного среза, без лишней зависимости.
+    // Equivalent to format!("{:x}", ...) for an arbitrary byte slice.
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
         s.push_str(&format!("{:02x}", b));
@@ -38,23 +37,19 @@ fn hex_lowercase(bytes: &[u8]) -> String {
     s
 }
 
-/// Результат помещения ресурса в хранилище lazer.
+/// Result of storing a resource in osu!lazer's content-addressed storage.
 #[derive(Debug, Clone)]
 pub struct StoredFile {
     pub hash: String,
     pub destination: PathBuf,
-    /// true, если файл с таким хэшем уже лежал в хранилище (дедуп сработал,
-    /// физического копирования не было).
+    /// `true` if a file with this SHA-256 hash was already present in storage
+    /// (deduplicated without copying again).
     pub already_present: bool,
 }
 
-/// Копирует файл `source` в content-addressed хранилище `files_dir`, кладя
-/// его по пути `files/<h0>/<h0h1>/<hash>`. Если файл с таким хэшем уже есть —
-/// не копирует повторно (дедупликация, как в самой lazer).
-///
-/// Хэш и физическое копирование — единственная забота этой функции. Регистрация
-/// ссылки на файл в базе (имя ресурса → хэш для конкретного скина) — задача
-/// JSON-патча, который потом уходит в realm-bridge (Этап 1).
+/// Copies `source` into the content-addressed storage directory `files_dir` at
+/// `files/<h0>/<h0h1>/<hash>`. If a file with the same SHA-256 hash already exists,
+/// it is not copied again.
 pub fn store_resource(files_dir: &Path, source: &Path) -> CoreResult<StoredFile> {
     let hash = sha256_hex(source)?;
     let destination = hashed_storage_path(files_dir, &hash);
@@ -71,9 +66,8 @@ pub fn store_resource(files_dir: &Path, source: &Path) -> CoreResult<StoredFile>
         std::fs::create_dir_all(parent).map_err(io_err(parent))?;
     }
 
-    // Копируем во временный файл рядом и атомарно переименовываем — чтобы
-    // параллельный читатель (в теории — сама игра, если вдруг запущена) никогда
-    // не увидел частично записанный файл под финальным именем.
+    // Copy to a temporary file alongside the destination and rename atomically
+    // so concurrent readers never observe a partially written file.
     let tmp_destination = destination.with_extension("tmp-copy");
     std::fs::copy(source, &tmp_destination).map_err(io_err(source))?;
     std::fs::rename(&tmp_destination, &destination).map_err(io_err(&destination))?;
@@ -85,8 +79,8 @@ pub fn store_resource(files_dir: &Path, source: &Path) -> CoreResult<StoredFile>
     })
 }
 
-/// Сохраняет срез байтов напрямую в content-addressed хранилище `files_dir`
-/// по пути `files/<h0>/<h0h1>/<hash>`. Применяется для генерации нового `skin.ini`.
+/// Stores a raw byte slice directly in the content-addressed storage directory `files_dir`
+/// at `files/<h0>/<h0h1>/<hash>`. Used for storing generated `skin.ini` content.
 pub fn store_resource_bytes(files_dir: &Path, bytes: &[u8]) -> CoreResult<StoredFile> {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -135,7 +129,7 @@ mod tests {
         let file_path = dir.join("sample.txt");
         std::fs::write(&file_path, b"abc").unwrap();
 
-        // Известный тестовый вектор SHA-256 для строки "abc".
+        // Standard SHA-256 test vector for "abc".
         let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         let actual = sha256_hex(&file_path).unwrap();
         assert_eq!(actual, expected);

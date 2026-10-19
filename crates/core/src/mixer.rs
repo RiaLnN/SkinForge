@@ -494,10 +494,19 @@ pub fn export_osk(
                         for df in donor_files {
                             if let Some(disk_path) = donor_skin.resolve_file_path(files_dir, df) {
                                 if slot == ComponentSlot::ComboNumbers {
-                                    let lower_name = df.filename.to_ascii_lowercase();
-                                    if let Some(rest) = lower_name.strip_prefix("combo-") {
+                                    let basename = df
+                                        .filename
+                                        .rsplit(['/', '\\'])
+                                        .next()
+                                        .unwrap_or(&df.filename);
+                                    let lower_base = basename.to_ascii_lowercase();
+                                    if let Some(rest) = lower_base
+                                        .strip_prefix("combo-")
+                                        .or_else(|| lower_base.strip_prefix("default-"))
+                                    {
                                         file_map
                                             .insert(format!("default-{rest}"), disk_path.clone());
+                                        file_map.insert(format!("combo-{rest}"), disk_path.clone());
                                     }
                                 }
                                 file_map.insert(df.filename.clone(), disk_path);
@@ -1086,6 +1095,66 @@ mod tests {
         std::io::Read::read_to_end(&mut archive.by_name("cursor.png").unwrap(), &mut cursor_read)
             .unwrap();
         assert_eq!(cursor_read, b"stable-donor-cursor-1x");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn export_osk_normalizes_combo_numbers_from_subfolders_and_prefixes() {
+        let root = temp_dir("export-osk-combo-prefix");
+        let stable_base_dir = root.join("BaseCombo");
+        let stable_donor_dir = root.join("DonorDefaultSubfolder");
+        fs::create_dir_all(&stable_base_dir).unwrap();
+        fs::create_dir_all(stable_donor_dir.join("Combo")).unwrap();
+
+        fs::write(stable_base_dir.join("combo-1.png"), b"base-combo-1").unwrap();
+        fs::write(
+            stable_donor_dir.join("Combo/default-1.png"),
+            b"donor-default-1",
+        )
+        .unwrap();
+
+        let skins = crate::paths::scan_stable_skins(&root);
+        let base_id = skins
+            .iter()
+            .find(|s| s.name == "BaseCombo")
+            .unwrap()
+            .id
+            .clone();
+        let donor_id = skins
+            .iter()
+            .find(|s| s.name == "DonorDefaultSubfolder")
+            .unwrap()
+            .id
+            .clone();
+
+        let plan = ManifestMixPlan {
+            base_skin_id: base_id,
+            new_skin_name: "MixedCombo".to_string(),
+            new_skin_creator: "SkinForge".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::ComboNumbers,
+                source: SlotSource::Donor(donor_id),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let osk_path = root.join("MixedCombo.osk");
+        export_osk(None, &skins, &plan, None, &osk_path).unwrap();
+
+        let file = fs::File::open(&osk_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+
+        // Both root default-1.png and combo-1.png must exist with donor bytes
+        let mut def_bytes = Vec::new();
+        std::io::Read::read_to_end(&mut archive.by_name("default-1.png").unwrap(), &mut def_bytes)
+            .unwrap();
+        assert_eq!(def_bytes, b"donor-default-1");
+
+        let mut combo_bytes = Vec::new();
+        std::io::Read::read_to_end(&mut archive.by_name("combo-1.png").unwrap(), &mut combo_bytes)
+            .unwrap();
+        assert_eq!(combo_bytes, b"donor-default-1");
 
         fs::remove_dir_all(&root).ok();
     }

@@ -136,6 +136,18 @@ fn execute_export_osk(
     skin_ini.set_general("Name", &plan.new_skin_name);
     skin_ini.set_general("Author", &plan.new_skin_creator);
     skin_ini.set_combo_colours(combo_colours);
+
+    // If ComboNumbers is overridden by a donor skin, normalize HitCirclePrefix to "default"
+    // so custom subfolder/prefix overrides in the base skin's [Fonts] don't break digit rendering.
+    if plan.slots.iter().any(|s| {
+        s.slot == skinforge_core::categorize::ComponentSlot::ComboNumbers
+            && matches!(s.source, skinforge_core::mixer::SlotSource::Donor(_))
+    }) {
+        skin_ini
+            .get_or_create_section_mut("Fonts")
+            .set("HitCirclePrefix", "default");
+    }
+
     let serialized_ini = skin_ini.to_string();
 
     mixer::export_osk(

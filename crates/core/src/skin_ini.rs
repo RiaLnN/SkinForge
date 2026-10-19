@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::error::{io_err, CoreResult};
 
-/// Одна секция `[Name]` с парами `Key: Value` в исходном порядке (порядок
-/// важен хотя бы для Combo1..ComboN — он определяет очередность цветов комбо).
+/// A single `[Name]` section with `Key: Value` pairs in original order
+/// (order matters for `Combo1..ComboN` to preserve combo colour order).
 #[derive(Debug, Clone, Default)]
 pub struct IniSection {
     pub name: String,
@@ -43,10 +43,10 @@ pub struct SkinIni {
 }
 
 impl SkinIni {
-    /// Читает и парсит `skin.ini` по указанному пути. Файлы skin.ini старых
-    /// скинов нередко в ISO-8859-1 / Windows-1251 без BOM, а не в чистом UTF-8 —
-    /// поэтому читаем байты и используем lossy-конверсию, а не `fs::read_to_string`,
-    /// которая на невалидном UTF-8 просто откажет в чтении всего файла.
+    /// Reads and parses `skin.ini` at the specified path. Legacy skin.ini files
+    /// are sometimes encoded in ISO-8859-1 / Windows-1251 without BOM rather than
+    /// strict UTF-8, so we read raw bytes and use lossy conversion instead of
+    /// `fs::read_to_string`.
     pub fn read_from_file(path: &Path) -> CoreResult<Self> {
         let bytes = std::fs::read(path).map_err(io_err(path))?;
         Ok(Self::parse(&String::from_utf8_lossy(&bytes)))
@@ -57,7 +57,7 @@ impl SkinIni {
         let mut current: Option<IniSection> = None;
 
         for raw_line in text.lines() {
-            // BOM на первой строке, если файл всё же был UTF-8 с BOM.
+            // Strip UTF-8 BOM on the first line if present.
             let line = raw_line.trim_start_matches('\u{feff}').trim();
 
             if line.is_empty() || line.starts_with(';') || line.starts_with("//") {
@@ -75,17 +75,14 @@ impl SkinIni {
                 continue;
             }
 
-            // Формат skin.ini — "Key: Value" (в отличие от .osu-файлов beatmap,
-            // где чаще "Key:Value" без пробела и без секций верхнего уровня —
-            // здесь делим по первому ':' и триммим обе части).
+            // skin.ini uses "Key: Value" pairs (split on the first ':' and trim both sides).
             if let Some(colon_pos) = line.find(':') {
                 let key = line[..colon_pos].trim().to_string();
                 let value = line[colon_pos + 1..].trim().to_string();
                 if let Some(section) = current.as_mut() {
                     section.entries.push((key, value));
                 }
-                // Строки вида "Key: Value" вне секции по формату skin.ini не
-                // предусмотрены — просто пропускаем, ничего не ломая.
+                // Key-value lines outside of any section are ignored safely.
             }
         }
 
@@ -114,9 +111,9 @@ impl SkinIni {
         self.general("Author")
     }
 
-    /// Комбо-цвета из `[Colours]`, в порядке Combo1..ComboN, как `(index, (r,g,b))`.
-    /// Ключи, не подходящие под `ComboN`, игнорируются (например SliderBorder,
-    /// SliderTrackOverride — это тоже валидные ключи `[Colours]`, но не комбо-цвета).
+    /// Combo colours from `[Colours]`, ordered by `Combo1..ComboN`, as `(index, (r,g,b))`.
+    /// Non-combo keys in `[Colours]` (such as `SliderBorder` or `SliderTrackOverride`)
+    /// are ignored here.
     pub fn combo_colours(&self) -> Vec<(u32, (u8, u8, u8))> {
         let Some(section) = self.section("Colours") else {
             return Vec::new();
@@ -138,7 +135,7 @@ impl SkinIni {
         out
     }
 
-    /// Произвольный ключ из `[Colours]` без интерпретации (SliderBorder и т.п.).
+    /// Reads an arbitrary RGB key from `[Colours]` (e.g. `SliderBorder`).
     pub fn colour_key(&self, key: &str) -> Option<(u8, u8, u8)> {
         self.section("Colours")
             .and_then(|s| s.get(key))
@@ -431,7 +428,7 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = r#"
-// пример skin.ini
+// sample skin.ini
 [General]
 Name: My Mixed Skin
 Author: mixer

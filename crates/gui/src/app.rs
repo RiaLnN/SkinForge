@@ -182,6 +182,41 @@ impl eframe::App for MixerApp {
                     };
                     ui.colored_label(color, msg);
                 }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let playing = self.audio.is_playing();
+                    ui.add_enabled_ui(playing, |ui| {
+                        let stop_text = egui::RichText::new(format!(
+                            "{} Stop Audio",
+                            egui_phosphor::regular::STOP
+                        ))
+                        .color(if playing {
+                            egui::Color32::from_rgb(255, 110, 140)
+                        } else {
+                            egui::Color32::GRAY
+                        });
+                        if ui
+                            .button(stop_text)
+                            .on_hover_text("Stop currently playing audio immediately")
+                            .clicked()
+                        {
+                            self.audio.stop();
+                        }
+                    });
+
+                    let mut vol_pct = (self.audio.volume() * 100.0).round();
+                    let slider = egui::Slider::new(&mut vol_pct, 0.0..=100.0)
+                        .suffix("%")
+                        .show_value(true);
+                    if ui
+                        .add_sized([110.0, 18.0], slider)
+                        .on_hover_text("Master audio preview volume")
+                        .changed()
+                    {
+                        self.audio.set_volume(vol_pct / 100.0);
+                    }
+                    ui.label(egui_phosphor::regular::SPEAKER_HIGH);
+                });
             });
         });
 

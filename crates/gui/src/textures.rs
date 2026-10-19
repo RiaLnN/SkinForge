@@ -213,11 +213,14 @@ fn find_skin_file_for_slot(
             "combo-1@2x.png",
             "combo-1.png",
         ] {
-            if let Some(f) = skin
-                .files
-                .iter()
-                .find(|f| f.filename.eq_ignore_ascii_case(candidate))
-            {
+            if let Some(f) = skin.files.iter().find(|f| {
+                let basename = f
+                    .filename
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or(&f.filename);
+                basename.eq_ignore_ascii_case(candidate)
+            }) {
                 return Some(f);
             }
         }
@@ -306,5 +309,35 @@ mod tests {
         state.set_installed_skins(vec![stable_skin]);
         let resolved = resolve_slot_file_path(&state, ComponentSlot::Hitcircle);
         assert_eq!(resolved, Some(stable_folder.join("hitcircle@2x.png")));
+    }
+
+    #[test]
+    fn combo_numbers_lookup_finds_digit_1_inside_subfolder() {
+        let skin = Skin {
+            id: "stable:Sub".to_string(),
+            name: "Sub".to_string(),
+            creator: "Tester".to_string(),
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files: vec![
+                SkinFile {
+                    filename: "score/default-0.png".to_string(),
+                    file_hash: "hash_0".to_string(),
+                },
+                SkinFile {
+                    filename: "score/default-1.png".to_string(),
+                    file_hash: "hash_1".to_string(),
+                },
+            ],
+            source: skinforge_core::bridge::SkinSource::Stable,
+            root_dir: None,
+        };
+
+        assert_eq!(
+            find_file_hash_for_slot(&skin, ComponentSlot::ComboNumbers),
+            Some("hash_1")
+        );
     }
 }
