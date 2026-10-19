@@ -1176,8 +1176,11 @@ mod tests {
         let donor_cursor_stored =
             storage::store_resource_bytes(&files_dir, donor_cursor_bytes).unwrap();
 
-        let donor_skin =
-            make_test_skin("donor_id", "DonorSkin", &[("cursor.png", &donor_cursor_stored.hash)]);
+        let donor_skin = make_test_skin(
+            "donor_id",
+            "DonorSkin",
+            &[("cursor.png", &donor_cursor_stored.hash)],
+        );
 
         let plan = ManifestMixPlan {
             base_skin_id: "base_id".to_string(),
@@ -1246,16 +1249,38 @@ mod tests {
         fs::create_dir_all(&stable_donor_dir).unwrap();
 
         fs::write(stable_base_dir.join("cursor.png"), b"stable-base-cursor").unwrap();
-        fs::write(stable_base_dir.join("cursor@2x.png"), b"stable-base-cursor-2x").unwrap();
-        fs::write(stable_base_dir.join("hitcircle.png"), b"stable-base-hitcircle").unwrap();
+        fs::write(
+            stable_base_dir.join("cursor@2x.png"),
+            b"stable-base-cursor-2x",
+        )
+        .unwrap();
+        fs::write(
+            stable_base_dir.join("hitcircle.png"),
+            b"stable-base-hitcircle",
+        )
+        .unwrap();
 
         // Donor only has 1x cursor.png -> must prune base cursor@2x.png in exported .osk
-        fs::write(stable_donor_dir.join("cursor.png"), b"stable-donor-cursor-1x").unwrap();
+        fs::write(
+            stable_donor_dir.join("cursor.png"),
+            b"stable-donor-cursor-1x",
+        )
+        .unwrap();
 
         let skins = crate::paths::scan_stable_skins(&root);
         assert_eq!(skins.len(), 2);
-        let base_id = skins.iter().find(|s| s.name == "StableBase").unwrap().id.clone();
-        let donor_id = skins.iter().find(|s| s.name == "StableDonor").unwrap().id.clone();
+        let base_id = skins
+            .iter()
+            .find(|s| s.name == "StableBase")
+            .unwrap()
+            .id
+            .clone();
+        let donor_id = skins
+            .iter()
+            .find(|s| s.name == "StableDonor")
+            .unwrap()
+            .id
+            .clone();
 
         let plan = ManifestMixPlan {
             base_skin_id: base_id,
@@ -1269,15 +1294,25 @@ mod tests {
         };
 
         let osk_path = root.join("MixedStable.osk");
-        export_osk(None, &skins, &plan, Some("[General]\nName: MixedStable\n"), &osk_path).unwrap();
+        export_osk(
+            None,
+            &skins,
+            &plan,
+            Some("[General]\nName: MixedStable\n"),
+            &osk_path,
+        )
+        .unwrap();
 
         let file = fs::File::open(&osk_path).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
         assert!(archive.by_name("cursor@2x.png").is_err());
 
         let mut cursor_read = Vec::new();
-        std::io::Read::read_to_end(&mut archive.by_name("cursor.png").unwrap(), &mut cursor_read)
-            .unwrap();
+        std::io::Read::read_to_end(
+            &mut archive.by_name("cursor.png").unwrap(),
+            &mut cursor_read,
+        )
+        .unwrap();
         assert_eq!(cursor_read, b"stable-donor-cursor-1x");
 
         fs::remove_dir_all(&root).ok();
@@ -1331,13 +1366,19 @@ mod tests {
 
         // Both root default-1.png and combo-1.png must exist with donor bytes
         let mut def_bytes = Vec::new();
-        std::io::Read::read_to_end(&mut archive.by_name("default-1.png").unwrap(), &mut def_bytes)
-            .unwrap();
+        std::io::Read::read_to_end(
+            &mut archive.by_name("default-1.png").unwrap(),
+            &mut def_bytes,
+        )
+        .unwrap();
         assert_eq!(def_bytes, b"donor-default-1");
 
         let mut combo_bytes = Vec::new();
-        std::io::Read::read_to_end(&mut archive.by_name("combo-1.png").unwrap(), &mut combo_bytes)
-            .unwrap();
+        std::io::Read::read_to_end(
+            &mut archive.by_name("combo-1.png").unwrap(),
+            &mut combo_bytes,
+        )
+        .unwrap();
         assert_eq!(combo_bytes, b"donor-default-1");
 
         fs::remove_dir_all(&root).ok();

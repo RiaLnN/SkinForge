@@ -299,12 +299,7 @@ impl eframe::App for MixerApp {
         egui::CentralPanel::default()
             .frame(central_frame)
             .show(ctx, |ui| {
-                categories::render_categories(
-                    ui,
-                    &mut self.state,
-                    &mut self.textures,
-                    &self.audio,
-                );
+                categories::render_categories(ui, &mut self.state, &mut self.textures, &self.audio);
             });
     }
 }

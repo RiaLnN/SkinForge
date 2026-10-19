@@ -38,8 +38,7 @@ pub fn run_worker(rx: Receiver<WorkerTask>, tx: Sender<AppEvent>) {
                 let mut lazer_error: Option<String> = None;
 
                 // 1. Discover osu!lazer skins (if available)
-                if let Ok(installation) =
-                    paths::resolve_lazer_root_with_override(custom_lazer_root)
+                if let Ok(installation) = paths::resolve_lazer_root_with_override(custom_lazer_root)
                 {
                     let _ = tx.send(AppEvent::LazerInstallationFound(installation.clone()));
                     match find_realm_bridge_binary() {

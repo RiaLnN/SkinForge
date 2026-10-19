@@ -169,7 +169,10 @@ fn validate_stable_root(path: PathBuf) -> Option<StableInstallation> {
         .file_name()
         .is_some_and(|n| n.eq_ignore_ascii_case("Skins"))
     {
-        let root = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone());
+        let root = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| path.clone());
         return Some(StableInstallation {
             root,
             skins_dir: path,
@@ -385,10 +388,8 @@ mod tests {
 
     #[test]
     fn scan_stable_skins_discovers_folders_and_reads_skin_ini_author() {
-        let dir = std::env::temp_dir().join(format!(
-            "skinforge-stable-scan-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("skinforge-stable-scan-test-{}", std::process::id()));
         let skins_dir = dir.join("Skins");
         let skin_a = skins_dir.join("-+ WhiteCat (1.0)");
         let skin_b = skins_dir.join("EmptyFolder");
