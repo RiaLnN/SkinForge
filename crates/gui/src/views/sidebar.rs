@@ -1,6 +1,6 @@
 use std::sync::mpsc::Sender;
 
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, pos2, vec2, Color32, FontId, Rect, Stroke};
 use skinforge_core::bridge::SkinSource;
 
 use crate::state::{truncate_text, AppState};
@@ -16,7 +16,7 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
 
         ui.heading(
             egui::RichText::new(format!(
-                "{} 1. Base Skin & Filter",
+                "{} Base Skin & Filter",
                 egui_phosphor::regular::FOLDER_OPEN
             ))
             .color(Color32::from_rgb(255, 130, 188)),
@@ -27,11 +27,11 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
         let (current_base_display, current_base_full) = state
             .base_skin()
             .map(|s| {
-                let badge = s.badge_label();
+                let badge = s.badge_label().to_uppercase();
                 let short = truncate_text(&s.name, 16);
                 (
-                    format!("[{badge}] {short}"),
-                    format!("{} ({}) — by {}", s.name, badge, s.creator),
+                    format!("{badge}  {short}"),
+                    format!("{} ({}) — by {}", s.name, s.badge_label(), s.creator),
                 )
             })
             .unwrap_or_else(|| ("Select skin...".to_string(), "No base skin selected".to_string()));
@@ -58,9 +58,9 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
                         SkinSource::Lazer => "lazer",
                         SkinSource::Stable => "stable",
                     };
-                    let label = format!("[{badge}] {}", truncate_text(&name, 24));
+                    let job = build_skin_badged_job(source, &truncate_text(&name, 22), is_selected);
                     let resp = ui
-                        .selectable_label(is_selected, label)
+                        .selectable_label(is_selected, job)
                         .on_hover_text(format!("{name}\nCreator: {creator}\nSource: osu!{badge}"));
                     if resp.clicked() {
                         state.select_base_skin(&id);
@@ -101,7 +101,7 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
         ui.separator();
         ui.add_space(6.0);
 
-        // 4. Version filters (lazer / stable)
+        // 4. Version filters (lazer / stable) — high-contrast dark-rose active toggle with bright border & white text
         ui.label(
             egui::RichText::new(format!(
                 "{} Game Version Filter:",
@@ -117,41 +117,21 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
         let stable_count = state.count_by_source(SkinSource::Stable);
 
         ui.horizontal(|ui| {
-            let lazer_icon = if state.show_lazer_skins {
-                egui_phosphor::regular::CHECK_SQUARE
-            } else {
-                egui_phosphor::regular::SQUARE
-            };
-            let lazer_text = egui::RichText::new(format!("{lazer_icon} lazer ({lazer_count})"))
-                .color(if state.show_lazer_skins {
-                    Color32::from_rgb(185, 175, 255)
-                } else {
-                    Color32::from_rgb(135, 120, 148)
-                });
-            if ui
-                .selectable_label(state.show_lazer_skins, lazer_text)
-                .on_hover_text("Show or hide osu!lazer skins in selectors")
-                .clicked()
-            {
+            if render_version_filter_toggle(
+                ui,
+                state.show_lazer_skins,
+                &format!("lazer ({lazer_count})"),
+                "Show or hide osu!lazer skins in selectors",
+            ) {
                 state.show_lazer_skins = !state.show_lazer_skins;
             }
 
-            let stable_icon = if state.show_stable_skins {
-                egui_phosphor::regular::CHECK_SQUARE
-            } else {
-                egui_phosphor::regular::SQUARE
-            };
-            let stable_text = egui::RichText::new(format!("{stable_icon} stable ({stable_count})"))
-                .color(if state.show_stable_skins {
-                    Color32::from_rgb(255, 130, 188)
-                } else {
-                    Color32::from_rgb(135, 120, 148)
-                });
-            if ui
-                .selectable_label(state.show_stable_skins, stable_text)
-                .on_hover_text("Show or hide osu!stable skins in selectors")
-                .clicked()
-            {
+            if render_version_filter_toggle(
+                ui,
+                state.show_stable_skins,
+                &format!("stable ({stable_count})"),
+                "Show or hide osu!stable skins in selectors",
+            ) {
                 state.show_stable_skins = !state.show_stable_skins;
             }
         });
@@ -258,7 +238,7 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
 
         ui.add_space(6.0);
 
-        // 6. Installed skins list
+        // 6. Installed skins list (left-aligned rows, distinct version badge pill, background-only active highlight)
         let visible_items: Vec<(String, String, String, usize, SkinSource)> = state
             .visible_skins()
             .into_iter()
@@ -291,33 +271,198 @@ pub fn render_sidebar(ui: &mut egui::Ui, state: &mut AppState, worker_tx: &Sende
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_max_width(field_width);
+                ui.spacing_mut().item_spacing.y = 4.0;
+
                 for (id, name, creator, count, source) in visible_items {
                     let is_base = state.selected_base_skin_id.as_deref() == Some(&id);
-                    let radio_icon = if is_base {
-                        egui_phosphor::regular::RADIO_BUTTON
-                    } else {
-                        egui_phosphor::regular::CIRCLE
-                    };
-                    let badge = match source {
+                    let badge_lower = match source {
                         SkinSource::Lazer => "lazer",
                         SkinSource::Stable => "stable",
                     };
-                    let short_name = truncate_text(&name, 18);
-                    let text = format!("{radio_icon} [{badge}] {short_name}");
                     let tooltip = format!(
-                        "{name}\nCreator: {creator}\nVersion: osu!{badge}\nFiles: {count}\nClick to set as Base Skin"
+                        "{name}\nCreator: {creator}\nVersion: osu!{badge_lower}\nFiles: {count}\nClick to set as Base Skin"
                     );
 
-                    let resp = ui
-                        .add_sized(
-                            [field_width, 22.0],
-                            egui::SelectableLabel::new(is_base, text),
-                        )
-                        .on_hover_text(tooltip);
-                    if resp.clicked() {
+                    if render_skin_list_row(ui, field_width, is_base, source, &name, &tooltip) {
                         state.select_base_skin(&id);
                     }
                 }
             });
     });
 }
+
+/// Renders a high-contrast toggle button for the Game Version Filter without clashing colors.
+fn render_version_filter_toggle(
+    ui: &mut egui::Ui,
+    active: bool,
+    label: &str,
+    tooltip: &str,
+) -> bool {
+    let icon = if active {
+        egui_phosphor::regular::CHECK_SQUARE
+    } else {
+        egui_phosphor::regular::SQUARE
+    };
+
+    let (bg_fill, stroke, text_color) = if active {
+        (
+            Color32::from_rgb(76, 26, 56),
+            Stroke::new(1.5_f32, Color32::from_rgb(255, 102, 171)),
+            Color32::WHITE,
+        )
+    } else {
+        (
+            Color32::from_rgb(24, 17, 30),
+            Stroke::new(1.0_f32, Color32::from_rgb(56, 38, 68)),
+            Color32::from_rgb(150, 134, 165),
+        )
+    };
+
+    let btn = egui::Button::new(
+        egui::RichText::new(format!("{icon} {label}"))
+            .size(12.0)
+            .strong()
+            .color(text_color),
+    )
+    .fill(bg_fill)
+    .stroke(stroke)
+    .rounding(6.0);
+
+    ui.add(btn).on_hover_text(tooltip).clicked()
+}
+
+/// Renders a single left-aligned skin row in the bottom list:
+/// - No radio circle icon (active state is indicated by row background & border)
+/// - Distinct pill badge for `LAZER` / `STABLE` on the left so it never merges with the skin name
+/// - Left-aligned truncated skin name
+fn render_skin_list_row(
+    ui: &mut egui::Ui,
+    width: f32,
+    is_active: bool,
+    source: SkinSource,
+    name: &str,
+    tooltip: &str,
+) -> bool {
+    let row_height = 26.0;
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, row_height), egui::Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        let hovered = resp.hovered();
+        let (row_fill, row_stroke) = if is_active {
+            (
+                Color32::from_rgb(175, 42, 108),
+                Stroke::new(1.0_f32, Color32::from_rgb(255, 130, 190)),
+            )
+        } else if hovered {
+            (
+                Color32::from_rgb(48, 30, 62),
+                Stroke::new(1.0_f32, Color32::from_rgb(98, 60, 120)),
+            )
+        } else {
+            (
+                Color32::from_rgb(27, 19, 34),
+                Stroke::new(1.0_f32, Color32::from_rgb(46, 31, 56)),
+            )
+        };
+
+        ui.painter().rect(rect, 5.0, row_fill, row_stroke);
+
+        // Distinct version pill badge on the left edge
+        let pill_w = 44.0;
+        let pill_h = 16.0;
+        let pill_rect = Rect::from_min_size(
+            pos2(rect.min.x + 6.0, rect.center().y - pill_h * 0.5),
+            vec2(pill_w, pill_h),
+        );
+        let (pill_label, pill_fill, pill_border, pill_text_color) = match source {
+            SkinSource::Stable => (
+                "STABLE",
+                Color32::from_rgb(38, 14, 30),
+                Stroke::new(1.0_f32, Color32::from_rgb(255, 120, 182)),
+                Color32::from_rgb(255, 195, 225),
+            ),
+            SkinSource::Lazer => (
+                "LAZER",
+                Color32::from_rgb(22, 16, 38),
+                Stroke::new(1.0_f32, Color32::from_rgb(190, 150, 255)),
+                Color32::from_rgb(220, 200, 255),
+            ),
+        };
+
+        ui.painter().rect(pill_rect, 4.0, pill_fill, pill_border);
+        ui.painter().text(
+            pill_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            pill_label,
+            FontId::proportional(9.5),
+            pill_text_color,
+        );
+
+        // Left-aligned skin name starting after the badge pill
+        let text_x = pill_rect.max.x + 8.0;
+        let avail_text_w = (rect.max.x - text_x - 6.0).max(20.0);
+        let max_chars = ((avail_text_w / 6.8) as usize).clamp(10, 24);
+        let short_name = truncate_text(name, max_chars);
+        let name_color = if is_active {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(238, 226, 246)
+        };
+
+        ui.painter().text(
+            pos2(text_x, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            short_name,
+            FontId::proportional(12.5),
+            name_color,
+        );
+    }
+
+    resp.on_hover_text(tooltip).clicked()
+}
+
+fn build_skin_badged_job(
+    source: SkinSource,
+    short_name: &str,
+    is_selected: bool,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let (badge_text, badge_color, badge_bg) = match source {
+        SkinSource::Stable => (
+            " STABLE ",
+            Color32::from_rgb(255, 195, 225),
+            Color32::from_rgb(42, 16, 34),
+        ),
+        SkinSource::Lazer => (
+            " LAZER ",
+            Color32::from_rgb(220, 200, 255),
+            Color32::from_rgb(25, 18, 42),
+        ),
+    };
+
+    job.append(
+        badge_text,
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::proportional(10.0),
+            color: badge_color,
+            background: badge_bg,
+            ..Default::default()
+        },
+    );
+    job.append(
+        &format!("  {short_name}"),
+        0.0,
+        egui::TextFormat {
+            font_id: FontId::proportional(12.5),
+            color: if is_selected {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(238, 226, 246)
+            },
+            ..Default::default()
+        },
+    );
+    job
+}
+

@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Rounding, Stroke};
+use eframe::egui::{self, Color32, Margin, Rounding, Stroke};
 use skinforge_core::bridge::Skin;
 use skinforge_core::paths::{LazerInstallation, StableInstallation};
 use std::sync::mpsc::{Receiver, Sender};
@@ -28,6 +28,8 @@ pub struct MixerApp {
 fn apply_osu_pink_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
     style.interaction.selectable_labels = false;
+    style.spacing.button_padding = egui::vec2(8.0, 5.0);
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
 
     let mut visuals = egui::Visuals::dark();
 
@@ -76,8 +78,8 @@ fn apply_osu_pink_theme(ctx: &egui::Context) {
     visuals.widgets.open.rounding = Rounding::same(6.0);
 
     // Selected items (tabs, active skin, checkboxes, sliders)
-    visuals.selection.bg_fill = Color32::from_rgb(198, 52, 122);
-    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 210, 232));
+    visuals.selection.bg_fill = Color32::from_rgb(185, 48, 115);
+    visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(255, 225, 240));
 
     style.visuals = visuals;
     ctx.set_style(style);
@@ -182,92 +184,106 @@ impl eframe::App for MixerApp {
             }
         }
 
-        egui::TopBottomPanel::top("top_status_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(
-                    egui::RichText::new("SkinForge")
-                        .strong()
-                        .color(Color32::from_rgb(255, 115, 180)),
-                );
+        let top_frame = egui::Frame::side_top_panel(&ctx.style())
+            .inner_margin(Margin::symmetric(16.0, 9.0))
+            .fill(Color32::from_rgb(25, 17, 31));
 
-                if ui
-                    .button(format!(
-                        "{} Refresh Skins",
-                        egui_phosphor::regular::ARROWS_CLOCKWISE
-                    ))
-                    .on_hover_text("Reload skins from osu!lazer and osu!stable")
-                    .clicked()
-                {
-                    self.state.is_working = true;
-                    let _ = self.worker_tx.send(WorkerTask::LoadSkins {
-                        custom_lazer_root: self.state.custom_lazer_root.clone(),
-                        custom_stable_root: self.state.custom_stable_root.clone(),
-                    });
-                }
-
-                if self.state.is_working {
-                    ui.spinner();
-                    ui.label("Processing...");
-                }
-                if let Some((msg, is_err)) = &self.state.status_message {
-                    let color = if *is_err {
-                        Color32::from_rgb(255, 110, 130)
-                    } else {
-                        Color32::from_rgb(100, 240, 160)
-                    };
-                    ui.colored_label(color, msg);
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let playing = self.audio.is_playing();
-                    ui.add_enabled_ui(playing, |ui| {
-                        let stop_text = egui::RichText::new(format!(
-                            "{} Stop Audio",
-                            egui_phosphor::regular::STOP
-                        ))
-                        .color(if playing {
-                            Color32::from_rgb(255, 102, 171)
-                        } else {
-                            Color32::GRAY
-                        });
-                        if ui
-                            .button(stop_text)
-                            .on_hover_text("Stop currently playing audio immediately")
-                            .clicked()
-                        {
-                            self.audio.stop();
-                        }
-                    });
-
-                    let mut vol_pct = (self.audio.volume() * 100.0).round();
-                    let slider = egui::Slider::new(&mut vol_pct, 0.0..=100.0)
-                        .suffix("%")
-                        .show_value(true);
-                    if ui
-                        .add_sized([110.0, 18.0], slider)
-                        .on_hover_text("Master audio preview volume")
-                        .changed()
-                    {
-                        self.audio.set_volume(vol_pct / 100.0);
-                    }
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::SPEAKER_HIGH)
-                            .color(Color32::from_rgb(255, 130, 188)),
+        egui::TopBottomPanel::top("top_status_panel")
+            .frame(top_frame)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading(
+                        egui::RichText::new("SkinForge")
+                            .strong()
+                            .color(Color32::from_rgb(255, 115, 180)),
                     );
+
+                    ui.add_space(4.0);
+
+                    if ui
+                        .button(format!(
+                            "{} Refresh Skins",
+                            egui_phosphor::regular::ARROWS_CLOCKWISE
+                        ))
+                        .on_hover_text("Reload skins from osu!lazer and osu!stable")
+                        .clicked()
+                    {
+                        self.state.is_working = true;
+                        let _ = self.worker_tx.send(WorkerTask::LoadSkins {
+                            custom_lazer_root: self.state.custom_lazer_root.clone(),
+                            custom_stable_root: self.state.custom_stable_root.clone(),
+                        });
+                    }
+
+                    if self.state.is_working {
+                        ui.spinner();
+                        ui.label("Processing...");
+                    }
+                    if let Some((msg, is_err)) = &self.state.status_message {
+                        let color = if *is_err {
+                            Color32::from_rgb(255, 110, 130)
+                        } else {
+                            Color32::from_rgb(100, 240, 160)
+                        };
+                        ui.colored_label(color, msg);
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let playing = self.audio.is_playing();
+                        ui.add_enabled_ui(playing, |ui| {
+                            let stop_text = egui::RichText::new(format!(
+                                "{} Stop Audio",
+                                egui_phosphor::regular::STOP
+                            ))
+                            .color(if playing {
+                                Color32::from_rgb(255, 102, 171)
+                            } else {
+                                Color32::GRAY
+                            });
+                            if ui
+                                .button(stop_text)
+                                .on_hover_text("Stop currently playing audio immediately")
+                                .clicked()
+                            {
+                                self.audio.stop();
+                            }
+                        });
+
+                        let mut vol_pct = (self.audio.volume() * 100.0).round();
+                        let slider = egui::Slider::new(&mut vol_pct, 0.0..=100.0)
+                            .suffix("%")
+                            .show_value(true);
+                        if ui
+                            .add_sized([110.0, 18.0], slider)
+                            .on_hover_text("Master audio preview volume")
+                            .changed()
+                        {
+                            self.audio.set_volume(vol_pct / 100.0);
+                        }
+                        ui.label(
+                            egui::RichText::new(egui_phosphor::regular::SPEAKER_HIGH)
+                                .color(Color32::from_rgb(255, 130, 188)),
+                        );
+                    });
                 });
             });
-        });
+
+        let side_frame = egui::Frame::side_top_panel(&ctx.style())
+            .inner_margin(Margin::symmetric(14.0, 12.0))
+            .fill(Color32::from_rgb(22, 16, 27));
 
         egui::SidePanel::left("sidebar_panel")
-            .default_width(280.0)
-            .width_range(245.0..=340.0)
+            .frame(side_frame)
+            .default_width(290.0)
+            .width_range(255.0..=350.0)
             .show(ctx, |ui| {
                 sidebar::render_sidebar(ui, &mut self.state, &self.worker_tx);
             });
 
         egui::SidePanel::right("preview_panel")
-            .default_width(370.0)
-            .width_range(310.0..=450.0)
+            .frame(side_frame)
+            .default_width(375.0)
+            .width_range(320.0..=450.0)
             .show(ctx, |ui| {
                 let action =
                     preview::render_preview(ui, &mut self.state, &mut self.textures, &self.audio);
@@ -276,8 +292,19 @@ impl eframe::App for MixerApp {
                 }
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            categories::render_categories(ui, &mut self.state, &mut self.textures, &self.audio);
-        });
+        let central_frame = egui::Frame::central_panel(&ctx.style())
+            .inner_margin(Margin::symmetric(16.0, 12.0))
+            .fill(Color32::from_rgb(20, 14, 25));
+
+        egui::CentralPanel::default()
+            .frame(central_frame)
+            .show(ctx, |ui| {
+                categories::render_categories(
+                    ui,
+                    &mut self.state,
+                    &mut self.textures,
+                    &self.audio,
+                );
+            });
     }
 }

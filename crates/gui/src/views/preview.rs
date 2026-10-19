@@ -32,7 +32,7 @@ pub fn render_preview(
             ui.vertical(|ui| {
                 ui.heading(
                     egui::RichText::new(format!(
-                        "{} 3. Preview & Export",
+                        "{} Preview & Export",
                         egui_phosphor::regular::EYE
                     ))
                     .color(Color32::from_rgb(255, 130, 188)),
@@ -165,73 +165,50 @@ pub fn render_preview(
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    let is_lazer = state.launch_target == LaunchTarget::Lazer;
-                    if ui
-                        .selectable_label(
-                            is_lazer,
-                            egui::RichText::new(format!(
-                                "{} osu!lazer",
-                                if is_lazer {
-                                    egui_phosphor::regular::RADIO_BUTTON
-                                } else {
-                                    egui_phosphor::regular::CIRCLE
-                                }
-                            ))
-                            .color(if is_lazer {
-                                Color32::WHITE
-                            } else {
-                                Color32::from_rgb(195, 185, 245)
-                            }),
-                        )
-                        .on_hover_text("Automatically launch the exported .osk package in osu!lazer")
-                        .clicked()
-                    {
-                        state.launch_target = LaunchTarget::Lazer;
-                    }
-
-                    let is_stable = state.launch_target == LaunchTarget::Stable;
-                    if ui
-                        .selectable_label(
-                            is_stable,
-                            egui::RichText::new(format!(
-                                "{} osu!stable",
-                                if is_stable {
-                                    egui_phosphor::regular::RADIO_BUTTON
-                                } else {
-                                    egui_phosphor::regular::CIRCLE
-                                }
-                            ))
-                            .color(if is_stable {
-                                Color32::WHITE
-                            } else {
-                                Color32::from_rgb(255, 145, 198)
-                            }),
-                        )
-                        .on_hover_text(
+                    for (target, label, tooltip) in [
+                        (
+                            LaunchTarget::Lazer,
+                            "osu!lazer",
+                            "Automatically launch the exported .osk package in osu!lazer",
+                        ),
+                        (
+                            LaunchTarget::Stable,
+                            "osu!stable",
                             "Automatically open the exported .osk package in osu!stable (uses Wine automatically on Linux)",
+                        ),
+                        (
+                            LaunchTarget::None,
+                            "Save only",
+                            "Save the .osk file to disk without launching osu!",
+                        ),
+                    ] {
+                        let active = state.launch_target == target;
+                        let (bg_fill, stroke, text_color) = if active {
+                            (
+                                Color32::from_rgb(175, 42, 108),
+                                egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 130, 190)),
+                                Color32::WHITE,
+                            )
+                        } else {
+                            (
+                                Color32::from_rgb(24, 17, 30),
+                                egui::Stroke::new(1.0_f32, Color32::from_rgb(56, 38, 68)),
+                                Color32::from_rgb(165, 148, 180),
+                            )
+                        };
+                        let btn = egui::Button::new(
+                            egui::RichText::new(label)
+                                .size(12.0)
+                                .strong()
+                                .color(text_color),
                         )
-                        .clicked()
-                    {
-                        state.launch_target = LaunchTarget::Stable;
-                    }
+                        .fill(bg_fill)
+                        .stroke(stroke)
+                        .rounding(6.0);
 
-                    let is_none = state.launch_target == LaunchTarget::None;
-                    if ui
-                        .selectable_label(
-                            is_none,
-                            egui::RichText::new(format!(
-                                "{} Save only",
-                                if is_none {
-                                    egui_phosphor::regular::RADIO_BUTTON
-                                } else {
-                                    egui_phosphor::regular::CIRCLE
-                                }
-                            )),
-                        )
-                        .on_hover_text("Save the .osk file to disk without launching osu!")
-                        .clicked()
-                    {
-                        state.launch_target = LaunchTarget::None;
+                        if ui.add(btn).on_hover_text(tooltip).clicked() {
+                            state.launch_target = target;
+                        }
                     }
                 });
 
