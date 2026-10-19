@@ -192,7 +192,7 @@ fn execute_build_osk(
     let osk_path = exports_dir.join(format!("{safe_name}.osk"));
 
     mixer::export_osk(
-        files_dir,
+        Some(files_dir),
         installed_skins,
         plan,
         Some(&serialized_ini),

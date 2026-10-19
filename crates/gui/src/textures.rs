@@ -227,6 +227,8 @@ mod tests {
                     file_hash: "hash_softhit".to_string(),
                 },
             ],
+            source: Default::default(),
+            root_dir: None,
         };
 
         assert_eq!(

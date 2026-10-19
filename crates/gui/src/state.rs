@@ -144,6 +144,8 @@ pub fn generate_mock_demo_skins() -> Vec<Skin> {
                 hash: format!("demo_hash_{i}"),
                 delete_pending: false,
                 files,
+                source: Default::default(),
+                root_dir: None,
             }
         })
         .collect()
@@ -352,6 +354,8 @@ mod tests {
                     file_hash: "hash".to_string(),
                 })
                 .collect(),
+            source: Default::default(),
+            root_dir: None,
         }
     }
 
