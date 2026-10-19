@@ -21,7 +21,15 @@ pub struct SkinFile {
     pub file_hash: String,
 }
 
-/// A skin entry from the Realm database — mirrors C# `SkinDto`.
+/// Source game installation for a skin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum SkinSource {
+    #[default]
+    Lazer,
+    Stable,
+}
+
+/// A skin entry from the Realm database or osu!stable Skins folder — mirrors C# `SkinDto`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skin {
     pub id: String,
@@ -33,6 +41,35 @@ pub struct Skin {
     pub hash: String,
     pub delete_pending: bool,
     pub files: Vec<SkinFile>,
+    #[serde(default)]
+    pub source: SkinSource,
+    #[serde(default)]
+    pub root_dir: Option<PathBuf>,
+}
+
+impl Skin {
+    /// Resolves the physical path on disk for a `SkinFile` belonging to this skin.
+    /// - For `osu!stable` skins (`root_dir` is `Some`), resolves relative to `root_dir`.
+    /// - For `osu!lazer` skins (`root_dir` is `None`), resolves inside `lazer_files_dir` via content hash.
+    pub fn resolve_file_path(
+        &self,
+        lazer_files_dir: Option<&Path>,
+        file: &SkinFile,
+    ) -> Option<PathBuf> {
+        if let Some(root) = &self.root_dir {
+            Some(root.join(&file.filename))
+        } else {
+            lazer_files_dir.map(|dir| crate::paths::hashed_storage_path(dir, &file.file_hash))
+        }
+    }
+
+    /// Returns a compact lowercase badge label (`"lazer"` or `"stable"`).
+    pub fn badge_label(&self) -> &'static str {
+        match self.source {
+            SkinSource::Lazer => "lazer",
+            SkinSource::Stable => "stable",
+        }
+    }
 }
 
 /// A patch operation applied via Realm bridge — mirrors C# `PatchOperation`.

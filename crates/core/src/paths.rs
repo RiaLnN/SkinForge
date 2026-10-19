@@ -133,6 +133,214 @@ pub fn find_realm_bridge_binary() -> Option<PathBuf> {
     candidates.into_iter().find(|c| c.is_file())
 }
 
+/// Detected osu!stable installation: root directory and `Skins/` subdirectory.
+#[derive(Debug, Clone)]
+pub struct StableInstallation {
+    pub root: PathBuf,
+    pub skins_dir: PathBuf,
+}
+
+/// Automatically locates an installed `osu!stable` directory by searching standard OS paths.
+pub fn resolve_stable_root() -> Option<StableInstallation> {
+    resolve_stable_root_with_override(None)
+}
+
+/// Resolves the `osu!stable` installation root (or direct `Skins` directory) with an optional override.
+pub fn resolve_stable_root_with_override(explicit: Option<PathBuf>) -> Option<StableInstallation> {
+    if let Some(path) = explicit {
+        return validate_stable_root(path);
+    }
+
+    for candidate in stable_candidate_roots() {
+        if let Some(inst) = validate_stable_root(candidate) {
+            return Some(inst);
+        }
+    }
+
+    None
+}
+
+fn validate_stable_root(path: PathBuf) -> Option<StableInstallation> {
+    if !path.is_dir() {
+        return None;
+    }
+    // Check if the user selected the `Skins` directory directly
+    if path
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("Skins"))
+    {
+        let root = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone());
+        return Some(StableInstallation {
+            root,
+            skins_dir: path,
+        });
+    }
+    // Check for `Skins` or `skins` subdirectory
+    for sub in ["Skins", "skins"] {
+        let candidate = path.join(sub);
+        if candidate.is_dir() {
+            return Some(StableInstallation {
+                root: path,
+                skins_dir: candidate,
+            });
+        }
+    }
+    None
+}
+
+fn stable_candidate_roots() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+
+    if let Some(env_path) = std::env::var_os("OSU_STABLE_PATH") {
+        out.push(PathBuf::from(env_path));
+    }
+
+    match std::env::consts::OS {
+        "windows" => {
+            if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
+                out.push(PathBuf::from(local_appdata).join("osu!"));
+            }
+            if let Some(program_files) = std::env::var_os("ProgramFiles") {
+                out.push(PathBuf::from(program_files).join("osu!"));
+            }
+            if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+                out.push(PathBuf::from(program_files_x86).join("osu!"));
+            }
+            out.push(PathBuf::from(r"C:\osu!"));
+            out.push(PathBuf::from(r"D:\osu!"));
+            out.push(PathBuf::from(r"E:\osu!"));
+        }
+        "macos" => {
+            out.push(PathBuf::from(
+                "/Applications/osu!.app/Contents/Resources/drive_c/osu!",
+            ));
+            if let Some(home) = dirs::home_dir() {
+                out.push(home.join("Library/Application Support/osu-stable"));
+                out.push(home.join("Games/osu!"));
+            }
+        }
+        _ => {
+            if let Some(home) = dirs::home_dir() {
+                out.push(home.join(".local/share/osu-wine/osu!"));
+                out.push(home.join(".local/share/osu-stable"));
+                out.push(home.join("Games/osu!"));
+                out.push(home.join(".wine/drive_c/osu!"));
+                if let Ok(user) = std::env::var("USER") {
+                    out.push(
+                        home.join(".wine/drive_c/users")
+                            .join(&user)
+                            .join("AppData/Local/osu!"),
+                    );
+                    out.push(
+                        home.join("Games/osu/drive_c/users")
+                            .join(&user)
+                            .join("AppData/Local/osu!"),
+                    );
+                }
+            }
+            if let Some(data_dir) = dirs::data_dir() {
+                out.push(data_dir.join("osu-wine/osu!"));
+                out.push(data_dir.join("osu-stable"));
+            }
+        }
+    }
+
+    dedup_preserve_order(out)
+}
+
+/// Scans an `osu!stable` `Skins/` directory and returns all valid skins as `Skin` structs
+/// with `source: SkinSource::Stable` and `root_dir: Some(skin_folder)`.
+pub fn scan_stable_skins(skins_dir: &Path) -> Vec<crate::bridge::Skin> {
+    let Ok(read_dir) = std::fs::read_dir(skins_dir) else {
+        return Vec::new();
+    };
+
+    let mut folder_paths: Vec<PathBuf> = read_dir
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
+        .map(|e| e.path())
+        .collect();
+
+    folder_paths.sort_by(|a, b| {
+        a.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_lowercase()
+            .cmp(
+                &b.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase(),
+            )
+    });
+
+    let mut out = Vec::new();
+
+    for folder in folder_paths {
+        let folder_name = folder
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        if folder_name.is_empty() || folder_name.starts_with('.') {
+            continue;
+        }
+
+        let mut files = Vec::new();
+        let mut ini_path: Option<PathBuf> = None;
+
+        for entry in walkdir::WalkDir::new(&folder).min_depth(1).max_depth(3) {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let rel = entry
+                .path()
+                .strip_prefix(&folder)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if ini_path.is_none() && rel.eq_ignore_ascii_case("skin.ini") {
+                ini_path = Some(entry.path().to_path_buf());
+            }
+
+            files.push(crate::bridge::SkinFile {
+                file_hash: format!("stable:{folder_name}/{rel}"),
+                filename: rel,
+            });
+        }
+
+        if files.is_empty() {
+            continue;
+        }
+
+        let mut creator = String::new();
+        if let Some(ini_file) = ini_path {
+            if let Ok(parsed) = crate::skin_ini::SkinIni::read_from_file(&ini_file) {
+                if let Some(author) = parsed.skin_author() {
+                    creator = author.to_string();
+                }
+            }
+        }
+
+        out.push(crate::bridge::Skin {
+            id: format!("stable:{folder_name}"),
+            name: folder_name,
+            creator,
+            is_protected: false,
+            instantiation_info: String::new(),
+            hash: String::new(),
+            delete_pending: false,
+            files,
+            source: crate::bridge::SkinSource::Stable,
+            root_dir: Some(folder),
+        });
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +381,48 @@ mod tests {
     #[test]
     fn candidate_roots_nonempty() {
         assert!(!candidate_roots().is_empty());
+    }
+
+    #[test]
+    fn scan_stable_skins_discovers_folders_and_reads_skin_ini_author() {
+        let dir = std::env::temp_dir().join(format!(
+            "skinforge-stable-scan-test-{}",
+            std::process::id()
+        ));
+        let skins_dir = dir.join("Skins");
+        let skin_a = skins_dir.join("-+ WhiteCat (1.0)");
+        let skin_b = skins_dir.join("EmptyFolder");
+        std::fs::create_dir_all(&skin_a).unwrap();
+        std::fs::create_dir_all(&skin_b).unwrap();
+
+        std::fs::write(
+            skin_a.join("skin.ini"),
+            "[General]\nName: WhiteCat 1.0\nAuthor: CK\n",
+        )
+        .unwrap();
+        std::fs::write(skin_a.join("cursor.png"), b"png").unwrap();
+
+        let inst = resolve_stable_root_with_override(Some(dir.clone())).unwrap();
+        assert_eq!(inst.skins_dir, skins_dir);
+
+        let skins = scan_stable_skins(&inst.skins_dir);
+        assert_eq!(skins.len(), 1);
+        assert_eq!(skins[0].name, "-+ WhiteCat (1.0)");
+        assert_eq!(skins[0].creator, "CK");
+        assert_eq!(skins[0].source, crate::bridge::SkinSource::Stable);
+        assert_eq!(skins[0].badge_label(), "stable");
+        assert_eq!(skins[0].root_dir.as_deref(), Some(skin_a.as_path()));
+
+        let cursor_file = skins[0]
+            .files
+            .iter()
+            .find(|f| f.filename == "cursor.png")
+            .unwrap();
+        assert_eq!(
+            skins[0].resolve_file_path(None, cursor_file).as_deref(),
+            Some(skin_a.join("cursor.png").as_path())
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -399,7 +399,7 @@ pub fn resolve_manifest_mix_with_storage(
 ///
 /// Writes a compressed `.osk` archive to `output_osk_path`.
 pub fn export_osk(
-    files_dir: &Path,
+    files_dir: Option<&Path>,
     installed_skins: &[Skin],
     plan: &ManifestMixPlan,
     custom_skin_ini: Option<&str>,
@@ -426,8 +426,9 @@ pub fn export_osk(
         if file.filename.eq_ignore_ascii_case("skin.ini") && custom_skin_ini.is_some() {
             continue;
         }
-        let disk_path = crate::paths::hashed_storage_path(files_dir, &file.file_hash);
-        file_map.insert(file.filename.clone(), disk_path);
+        if let Some(disk_path) = base_skin.resolve_file_path(files_dir, file) {
+            file_map.insert(file.filename.clone(), disk_path);
+        }
     }
 
     // 2. Apply slot assignments
@@ -447,9 +448,11 @@ pub fn export_osk(
                             .iter()
                             .find(|f| f.filename.eq_ignore_ascii_case("skin.json"))
                         {
-                            let disk_path =
-                                crate::paths::hashed_storage_path(files_dir, &donor_hud.file_hash);
-                            file_map.insert("skin.json".to_string(), disk_path);
+                            if let Some(disk_path) =
+                                donor_skin.resolve_file_path(files_dir, donor_hud)
+                            {
+                                file_map.insert("skin.json".to_string(), disk_path);
+                            }
                         } else {
                             file_map.retain(|k, _| !k.eq_ignore_ascii_case("skin.json"));
                         }
@@ -489,9 +492,9 @@ pub fn export_osk(
                         });
 
                         for df in donor_files {
-                            let disk_path =
-                                crate::paths::hashed_storage_path(files_dir, &df.file_hash);
-                            file_map.insert(df.filename.clone(), disk_path);
+                            if let Some(disk_path) = donor_skin.resolve_file_path(files_dir, df) {
+                                file_map.insert(df.filename.clone(), disk_path);
+                            }
                         }
                     }
                 }
@@ -705,6 +708,8 @@ mod tests {
                     file_hash: h.to_string(),
                 })
                 .collect(),
+            source: Default::default(),
+            root_dir: None,
         }
     }
 
@@ -816,25 +821,11 @@ mod tests {
     #[test]
     fn custom_file_import_stages_bytes_and_prunes_base_retina() {
         let files_dir = temp_dir("custom-files");
-        let base_skin = Skin {
-            id: "base-id".to_string(),
-            name: "Base".to_string(),
-            creator: "ck".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: String::new(),
-            delete_pending: false,
-            files: vec![
-                crate::bridge::SkinFile {
-                    filename: "cursor.png".to_string(),
-                    file_hash: "base1x".to_string(),
-                },
-                crate::bridge::SkinFile {
-                    filename: "cursor@2x.png".to_string(),
-                    file_hash: "base2x".to_string(),
-                },
-            ],
-        };
+        let base_skin = make_test_skin(
+            "base-id",
+            "Base",
+            &[("cursor.png", "base1x"), ("cursor@2x.png", "base2x")],
+        );
 
         let custom_file = files_dir.join("my_cursor.png");
         std::fs::create_dir_all(&files_dir).unwrap();
@@ -867,19 +858,7 @@ mod tests {
     #[test]
     fn custom_audio_file_retains_extension_and_prunes_base_wav() {
         let files_dir = temp_dir("custom-audio");
-        let base_skin = Skin {
-            id: "base-id".to_string(),
-            name: "Base".to_string(),
-            creator: "ck".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: String::new(),
-            delete_pending: false,
-            files: vec![crate::bridge::SkinFile {
-                filename: "normal-hitnormal.wav".to_string(),
-                file_hash: "base_wav".to_string(),
-            }],
-        };
+        let base_skin = make_test_skin("base-id", "Base", &[("normal-hitnormal.wav", "base_wav")]);
 
         let custom_file = files_dir.join("hit.ogg");
         std::fs::create_dir_all(&files_dir).unwrap();
@@ -910,44 +889,10 @@ mod tests {
 
     #[test]
     fn hud_layout_transfer_from_donor_and_default_removal() {
-        let base_with_hud = Skin {
-            id: "base-id".to_string(),
-            name: "Base".to_string(),
-            creator: "ck".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: String::new(),
-            delete_pending: false,
-            files: vec![crate::bridge::SkinFile {
-                filename: "skin.json".to_string(),
-                file_hash: "base_hud_hash".to_string(),
-            }],
-        };
-
-        let donor_with_hud = Skin {
-            id: "donor-id".to_string(),
-            name: "Donor".to_string(),
-            creator: "ck".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: String::new(),
-            delete_pending: false,
-            files: vec![crate::bridge::SkinFile {
-                filename: "skin.json".to_string(),
-                file_hash: "donor_hud_hash".to_string(),
-            }],
-        };
-
-        let donor_no_hud = Skin {
-            id: "donor-no-hud".to_string(),
-            name: "Donor No HUD".to_string(),
-            creator: "ck".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: String::new(),
-            delete_pending: false,
-            files: vec![],
-        };
+        let base_with_hud = make_test_skin("base-id", "Base", &[("skin.json", "base_hud_hash")]);
+        let donor_with_hud =
+            make_test_skin("donor-id", "Donor", &[("skin.json", "donor_hud_hash")]);
+        let donor_no_hud = make_test_skin("donor-no-hud", "Donor No HUD", &[]);
 
         // 1. Transfer from donor with skin.json
         let plan_donor = ManifestMixPlan {
@@ -1018,43 +963,21 @@ mod tests {
         let base_hitcircle_stored =
             storage::store_resource_bytes(&files_dir, base_hitcircle_bytes).unwrap();
 
-        let base_skin = Skin {
-            id: "base_id".to_string(),
-            name: "BaseSkin".to_string(),
-            creator: "BaseCreator".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: "base_hash".to_string(),
-            delete_pending: false,
-            files: vec![
-                crate::bridge::SkinFile {
-                    filename: "cursor.png".to_string(),
-                    file_hash: base_cursor_stored.hash,
-                },
-                crate::bridge::SkinFile {
-                    filename: "hitcircle.png".to_string(),
-                    file_hash: base_hitcircle_stored.hash,
-                },
+        let base_skin = make_test_skin(
+            "base_id",
+            "BaseSkin",
+            &[
+                ("cursor.png", &base_cursor_stored.hash),
+                ("hitcircle.png", &base_hitcircle_stored.hash),
             ],
-        };
+        );
 
         let donor_cursor_bytes = b"donor-cursor-png";
         let donor_cursor_stored =
             storage::store_resource_bytes(&files_dir, donor_cursor_bytes).unwrap();
 
-        let donor_skin = Skin {
-            id: "donor_id".to_string(),
-            name: "DonorSkin".to_string(),
-            creator: "DonorCreator".to_string(),
-            is_protected: false,
-            instantiation_info: String::new(),
-            hash: "donor_hash".to_string(),
-            delete_pending: false,
-            files: vec![crate::bridge::SkinFile {
-                filename: "cursor.png".to_string(),
-                file_hash: donor_cursor_stored.hash,
-            }],
-        };
+        let donor_skin =
+            make_test_skin("donor_id", "DonorSkin", &[("cursor.png", &donor_cursor_stored.hash)]);
 
         let plan = ManifestMixPlan {
             base_skin_id: "base_id".to_string(),
@@ -1077,7 +1000,7 @@ mod tests {
         let custom_ini = "[General]\nName: ExportedSkin\nAuthor: Mixer\n";
 
         export_osk(
-            &files_dir,
+            Some(&files_dir),
             &[base_skin, donor_skin],
             &plan,
             Some(custom_ini),
@@ -1110,6 +1033,52 @@ mod tests {
             std::io::Read::read_to_end(&mut hitcircle_entry, &mut hitcircle_read).unwrap();
             assert_eq!(hitcircle_read, base_hitcircle_bytes);
         }
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn export_osk_mixes_stable_and_lazer_skins_without_lazer_files_dir() {
+        let root = temp_dir("export-osk-stable");
+        let stable_base_dir = root.join("StableBase");
+        let stable_donor_dir = root.join("StableDonor");
+        fs::create_dir_all(&stable_base_dir).unwrap();
+        fs::create_dir_all(&stable_donor_dir).unwrap();
+
+        fs::write(stable_base_dir.join("cursor.png"), b"stable-base-cursor").unwrap();
+        fs::write(stable_base_dir.join("cursor@2x.png"), b"stable-base-cursor-2x").unwrap();
+        fs::write(stable_base_dir.join("hitcircle.png"), b"stable-base-hitcircle").unwrap();
+
+        // Donor only has 1x cursor.png -> must prune base cursor@2x.png in exported .osk
+        fs::write(stable_donor_dir.join("cursor.png"), b"stable-donor-cursor-1x").unwrap();
+
+        let skins = crate::paths::scan_stable_skins(&root);
+        assert_eq!(skins.len(), 2);
+        let base_id = skins.iter().find(|s| s.name == "StableBase").unwrap().id.clone();
+        let donor_id = skins.iter().find(|s| s.name == "StableDonor").unwrap().id.clone();
+
+        let plan = ManifestMixPlan {
+            base_skin_id: base_id,
+            new_skin_name: "MixedStable".to_string(),
+            new_skin_creator: "SkinForge".to_string(),
+            slots: vec![SlotAssignment {
+                slot: ComponentSlot::Cursor,
+                source: SlotSource::Donor(donor_id),
+            }],
+            custom_skin_ini_hash: None,
+        };
+
+        let osk_path = root.join("MixedStable.osk");
+        export_osk(None, &skins, &plan, Some("[General]\nName: MixedStable\n"), &osk_path).unwrap();
+
+        let file = fs::File::open(&osk_path).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("cursor@2x.png").is_err());
+
+        let mut cursor_read = Vec::new();
+        std::io::Read::read_to_end(&mut archive.by_name("cursor.png").unwrap(), &mut cursor_read)
+            .unwrap();
+        assert_eq!(cursor_read, b"stable-donor-cursor-1x");
 
         fs::remove_dir_all(&root).ok();
     }
