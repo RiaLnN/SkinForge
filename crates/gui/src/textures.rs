@@ -214,11 +214,7 @@ fn find_skin_file_for_slot(
             "combo-1.png",
         ] {
             if let Some(f) = skin.files.iter().find(|f| {
-                let basename = f
-                    .filename
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or(&f.filename);
+                let basename = f.filename.rsplit(['/', '\\']).next().unwrap_or(&f.filename);
                 basename.eq_ignore_ascii_case(candidate)
             }) {
                 return Some(f);

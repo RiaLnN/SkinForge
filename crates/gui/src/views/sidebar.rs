@@ -468,7 +468,11 @@ pub fn render_plain_option_row(
             egui::Align2::LEFT_CENTER,
             label,
             FontId::proportional(12.0),
-            if is_active { Color32::WHITE } else { text_color },
+            if is_active {
+                Color32::WHITE
+            } else {
+                text_color
+            },
         );
     }
 
@@ -520,4 +524,3 @@ pub fn build_skin_badged_job(
     );
     job
 }
-

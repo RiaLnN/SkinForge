@@ -304,9 +304,10 @@ impl ComponentSlot {
             | Self::Hit300g
             | Self::Hit300k => ComponentSubgroup::HitJudgements,
             Self::ComboNumbers => ComponentSubgroup::ComboNumbers,
-            Self::SliderBall | Self::SliderFollowCircle | Self::SliderTrack | Self::ReverseArrow => {
-                ComponentSubgroup::Sliders
-            }
+            Self::SliderBall
+            | Self::SliderFollowCircle
+            | Self::SliderTrack
+            | Self::ReverseArrow => ComponentSubgroup::Sliders,
             Self::SpinnerBackground
             | Self::SpinnerCircle
             | Self::SpinnerOsu
@@ -578,10 +579,7 @@ impl ComponentSlot {
             Self::ScorebarBg => k == "scorebar-bg",
             Self::ScorebarColour => k == "scorebar-colour",
             Self::ScorebarKi => {
-                k == "scorebar-ki"
-                    || k == "scorebar-kiddo"
-                    || k == "ki"
-                    || k == "scorebar-marker"
+                k == "scorebar-ki" || k == "scorebar-kiddo" || k == "ki" || k == "scorebar-marker"
             }
             Self::ScoreNumbers => k.starts_with("score-"),
             Self::InputOverlayBackground => k == "inputoverlay-background",
@@ -778,9 +776,7 @@ pub fn classify(filename: &str) -> ComponentInfo {
     }
 
     if let Some(rest) = stem.strip_prefix("score-") {
-        if is_all_digits(rest)
-            || matches!(rest, "comma" | "dot" | "percent" | "x")
-        {
+        if is_all_digits(rest) || matches!(rest, "comma" | "dot" | "percent" | "x") {
             return ComponentInfo {
                 filename: filename.to_string(),
                 category: ComponentCategory::Hud,
@@ -791,7 +787,9 @@ pub fn classify(filename: &str) -> ComponentInfo {
 
     // Hit judgements with optional animation frame suffix (e.g. hit300-0.png, hit300g-0.png, hit0.png)
     if !is_audio_ext {
-        for judge in ["hit300g", "hit300k", "hit300", "hit100k", "hit100", "hit50", "hit0"] {
+        for judge in [
+            "hit300g", "hit300k", "hit300", "hit100k", "hit100", "hit50", "hit0",
+        ] {
             if stem == judge {
                 return ComponentInfo {
                     filename: filename.to_string(),
@@ -1176,8 +1174,9 @@ mod tests {
         );
 
         // Input Overlay
-        assert!(ComponentSlot::InputOverlayBackground
-            .matches_filename("inputoverlay-background.png"));
+        assert!(
+            ComponentSlot::InputOverlayBackground.matches_filename("inputoverlay-background.png")
+        );
         assert!(ComponentSlot::InputOverlayKey.matches_filename("inputoverlay-key.png"));
         assert_eq!(
             ComponentSlot::InputOverlayKey.category(),

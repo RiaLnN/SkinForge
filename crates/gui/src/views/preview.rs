@@ -521,11 +521,7 @@ fn render_playfield_canvas(
     hit_action
 }
 
-fn render_element_inspector(
-    ui: &mut egui::Ui,
-    state: &AppState,
-    textures: &mut TextureCache,
-) {
+fn render_element_inspector(ui: &mut egui::Ui, state: &AppState, textures: &mut TextureCache) {
     let slot = state.inspected_slot;
     let source = state.slot_sources.get(&slot).unwrap_or(&SlotSource::Base);
 
@@ -611,8 +607,7 @@ fn render_element_inspector(
         .rounding(7.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                let (box_rect, _) =
-                    ui.allocate_exact_size(vec2(52.0, 52.0), egui::Sense::hover());
+                let (box_rect, _) = ui.allocate_exact_size(vec2(52.0, 52.0), egui::Sense::hover());
                 ui.painter()
                     .rect_filled(box_rect, 6.0, Color32::from_rgb(16, 11, 21));
                 ui.painter().rect_stroke(

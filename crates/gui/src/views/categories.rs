@@ -7,9 +7,7 @@ use crate::audio::AudioPlayer;
 use crate::state::{truncate_text, ActiveTab, AppState};
 use crate::textures::{resolve_slot_file_path, TextureCache};
 use crate::views::colors::render_colors;
-use crate::views::sidebar::{
-    build_skin_badged_job, render_plain_option_row, render_skin_list_row,
-};
+use crate::views::sidebar::{build_skin_badged_job, render_plain_option_row, render_skin_list_row};
 
 pub fn render_categories(
     ui: &mut egui::Ui,
