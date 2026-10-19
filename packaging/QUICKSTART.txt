@@ -1,20 +1,17 @@
 SkinForge __VERSION__ (__PLATFORM__)
 =====================================
 
-Mix and customize osu!lazer skins with a live preview and zero-copy performance.
+Mix and customize osu!lazer and osu!stable skins with a live interactive preview and universal .osk export.
 
-1. Close osu!lazer (so client.realm is not locked).
-2. Start the app:
+1. Start the app:
    - GUI: run skinforge (or skinforge.exe on Windows)
    - CLI: run skinforge-cli --help
-3. The app automatically detects your osu!lazer installation and installed skins.
-4. Select a base skin, choose donor elements for cursor, gameplay, audio, or interface,
-   and customize combo colours.
-5. Click "Build skin into osu!lazer". A timestamped backup of client.realm is
-   created automatically before applying changes.
-6. Start osu!lazer — your mixed skin will be available immediately!
+2. The app automatically detects your osu!lazer and osu!stable installations and loads all installed skins with LAZER / STABLE badges.
+3. Select a base skin, choose donor elements across 42 slots in 15 sub-groups (Cursor, Gameplay, HUD & Playfield, Menus & Screens, Audio), and customize combo colours.
+4. Test your mix on the interactive 60 fps playfield preview (click the hitcircle to trigger 300/100/50/Miss judgements) and audition sounds with Play/Stop controls.
+5. Choose whether to auto-open the exported file in osu!lazer, osu!stable (uses Wine automatically on Linux), or Save only, and click "Export .osk Skin".
 
-Keep the "bridge" folder next to the executable, it is required.
+Keep the "bridge" folder next to the executable, it is required to read osu!lazer's Realm database.
 No .NET or Rust installation is needed for pre-built release binaries.
 
 Full documentation: README.md

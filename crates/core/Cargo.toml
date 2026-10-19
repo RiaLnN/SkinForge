@@ -1,8 +1,8 @@
 [package]
 name = "skinforge-core"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2021"
-description = "Core library and CLI for osu!lazer SkinForge"
+description = "Core library and CLI for SkinForge (osu!lazer & osu!stable skin mixer)"
 license = "MIT"
 
 [lib]

@@ -22,11 +22,11 @@ SkinForge discovers skins from **both `osu!lazer` and `osu!stable`** in a unifie
 
 ## Features
 
-- **Unified `osu!lazer` & `osu!stable` Skin Discovery.** Automatically detects installed skins from `osu!lazer` (`client.realm`) and `osu!stable` (`Skins/`), displays them together with `[lazer]` and `[stable]` badges, and lets you filter by game version or pick custom folders.
-- **Deep Component Mixing (42 Slots in Structured Sub-Groups).** Organized into 5 component tabs (**Cursor**, **Gameplay**, **HUD & Playfield**, **Menus & Screens**, **Audio**) plus **Colors & INI**, with collapsible sub-groups for Hit Circles, Combo Numbers, Hit Judgements (`300`/`100`/`50`/`Miss`/`Geki`/`Katu`), Sliders, Spinners, Health/Scorebar, Input Overlay, Song Select, Ranking Screens, Pause/Fail Overlays, Mod Icons, and Hitsounds.
-- **Interactive Playfield Preview & Natural Hit Judgements.** Click the hitcircle on the 60 fps canvas as the approach circle closes in to test your cursor, trail, combo tint, health bar, and natural `300` / `100` / `50` / `Miss` hit judgement animations. Hover or click any visual slot row to inspect its sprite and dimensions in the **Selected Element Inspector**.
+- **Unified `osu!lazer` & `osu!stable` Skin Discovery.** Automatically detects installed skins from `osu!lazer` (`client.realm`) and `osu!stable` (`Skins/`), displays them together with distinct **`LAZER`** and **`STABLE`** pill badges across all selectors, and lets you filter by game version or pick custom folders.
+- **Deep Component Mixing (42 Slots in 15 Structured Sub-Groups).** Organized into 5 component tabs (**Cursor**, **Gameplay**, **HUD & Playfield**, **Menus & Screens**, **Audio**) plus **Colors & INI**, with collapsible sub-groups for Hit Circles, Combo Numbers, Hit Judgements (`300`/`100`/`50`/`Miss`/`Geki`/`Katu`), Sliders, Spinners, Health/Scorebar, Input Overlay, Song Select, Ranking Screens, Pause/Fail Overlays, Mod Icons, and Hitsounds.
+- **Interactive Playfield Preview & Natural Hit Judgements.** Click the hitcircle on the 60 fps canvas as the approach circle closes in to test your cursor, trail, combo tint, and natural `300` / `100` / `50` / `Miss` hit judgement animations. Hover or click any visual slot row to inspect its sprite and dimensions in the **Selected Element Inspector**.
 - **Stateful Audio Audition with Play/Stop & Default Fallback.** Preview any gameplay or menu sound with instant **Play / Stop** toggle controls (essential for long tracks like `applause.wav` or `pause-loop.wav`), a master volume slider, and synthesized default `osu!` sound fallback when a skin omits an audio file.
-- **Universal `.osk` Export.** Packages your mixed skin into a standard `.osk` archive compatible with both `osu!lazer` and `osu!stable` — 100% safe to export and open even while the game is running.
+- **Universal `.osk` Export & Direct Game Launch.** Packages your mixed skin into a standard `.osk` archive compatible with both `osu!lazer` and `osu!stable` — 100% safe to export while the game is running — and optionally launches the exported `.osk` directly in **`osu!lazer`**, **`osu!stable`** (with automatic Wine prefix & `Z:\` path resolution on Linux), or saves it to disk.
 - **CLI included** for scripting and inspection.
 
 ## Download
@@ -48,11 +48,11 @@ No .NET SDK or Rust toolchain is required.
 ## Quick start
 
 1. Run `skinforge` (`skinforge.exe` on Windows).
-2. Choose a **Base skin** on the left (use the `[lazer]` and `[stable]` toggles or search bar to filter your library, or select custom `lazer` / `stable` folders if installed in a non-default location).
+2. Choose a **Base skin** on the left (use the **`lazer`** and **`stable`** filter buttons or search bar to filter your library, or select custom `lazer` / `stable` folders if installed in a non-default location).
 3. Enter a name and creator for your new skin.
 4. In the center tabs (**Cursor**, **Gameplay**, **HUD & Playfield**, **Menus & Screens**, **Audio**, **Colors & INI**), expand any sub-group and pick a donor skin or import a custom file from disk (`Folder` button) for each element you want to customize. Use **Category batch** or **Batch sub-group** to swap an entire group in one click.
 5. Test your mix in the right panel: click the hitcircle on the canvas to trigger hit judgements (`300`/`100`/`50`/`Miss`), hover any component row to inspect its sprite, and audition sounds with the **Play / Stop** buttons.
-6. Click **Export .osk Skin**, choose where to save your `.osk` package, and let SkinForge open it directly in `osu!`.
+6. Choose how to handle the exported file (**`osu!lazer`**, **`osu!stable`**, or **`Save only`**), click **Export .osk Skin**, and pick where to save your `.osk` package.
 
 ## Compatibility
 
@@ -62,7 +62,7 @@ No .NET SDK or Rust toolchain is required.
 | osu!stable | All standard `Skins/` installations on Windows and Linux (Wine / Lutris) |
 | Realm .NET SDK | `20.1.0` (Dynamic API) |
 | Windows 10/11 (x64) | Supported |
-| Linux (x64, including Flatpak) | Supported |
+| Linux (x64, including Flatpak & Wine) | Supported |
 | macOS | Not supported |
 
 SkinForge reads `osu!lazer`'s database using Realm's Dynamic API and scans `osu!stable`'s `Skins/` directory directly. Exporting produces a standard `.osk` archive, so it never modifies `client.realm` or your existing `Skins/` folders.

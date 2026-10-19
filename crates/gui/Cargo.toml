@@ -1,8 +1,8 @@
 [package]
 name = "skinforge-gui"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2021"
-description = "Desktop graphical interface for osu!lazer SkinForge"
+description = "Desktop graphical interface for SkinForge (osu!lazer & osu!stable skin mixer)"
 license = "MIT"
 
 [dependencies]

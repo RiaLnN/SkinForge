@@ -42,6 +42,19 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
+      - name: Delete previous GitHub releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_TAG: ${{ steps.v.outputs.tag }}
+        shell: bash
+        run: |
+          for old_tag in $(gh release list --repo "${{ github.repository }}" --limit 100 --json tagName -q '.[].tagName'); do
+            if [[ "$old_tag" != "$CURRENT_TAG" ]]; then
+              echo "Deleting previous release: $old_tag"
+              gh release delete "$old_tag" --repo "${{ github.repository }}" --yes --cleanup-tag || true
+            fi
+          done
+
   build-windows:
     name: Build Windows x64
     needs: version
